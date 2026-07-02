@@ -1251,9 +1251,9 @@ function deleteCatch(id){
   // which would just get re-synced back down from the server.
   c.deleted=true;
   if(window.FishSync) window.FishSync.touch(c); else { c.updated_at=new Date().toISOString(); c._dirty=true; }
-  // Drop the local photo blob now; the cloud copy is removed by the Supabase
-  // delete trigger when this tombstone lands in the catches table.
+  // Remove the photo locally (IndexedDB) and in the cloud (Storage API).
   if(typeof photoDelete==='function') photoDelete(id);
+  if(c.hasPhoto && window.FishSync && window.FishSync.deleteCloudPhoto) window.FishSync.deleteCloudPhoto(id);
   save();               // save() calls render(); selectors below hide deleted catches
   closeSheet();
   toast('Catch deleted');
@@ -2967,9 +2967,21 @@ render();
   // Also try once on load in case a session is already restored.
   window.addEventListener('load', () => { setTimeout(() => { migrateIfNeeded().then(syncNow); }, 800); });
 
+  // Delete a catch's photo from cloud Storage via the Storage API (the
+  // supported way — direct SQL deletes from storage.objects are blocked).
+  async function deleteCloudPhoto(catchId){
+    try{
+      const { data: auth } = await window.sb.auth.getUser();
+      if (!auth || !auth.user) return;                 // not signed in; nothing to do
+      const path = `${auth.user.id}/${catchId}.jpg`;
+      const { error } = await window.sb.storage.from(PHOTO_BUCKET).remove([path]);
+      if (error) console.warn('[sync] cloud photo delete failed', catchId, error);
+    }catch(e){ console.warn('[sync] cloud photo delete error', catchId, e); }
+  }
+
   // Public surface used by the app's mutation code.
   window.FishSync = { touch, touchProfile, markPhotoDirty(c){ if(c) c._photoDirty = true; },
-                      syncNow, scheduleSync };
+                      syncNow, scheduleSync, deleteCloudPhoto };
 })();
 
 </script>
