@@ -677,9 +677,16 @@ function saveCurrentAsLoadout(){
 const MAX_TRIP_TEMPLATES=8;
 // Fields a template carries over. Mirrors the New Trip form (openSessionSheet),
 // minus per-trip things like title/notes/date/time.
-const TRIP_TEMPLATE_FIELDS=['country','state','waterType','water','launch','area',
-  'partners','boat','method','techniqueFocus','target','weather','clarity','flow',
-  'spawnPhase','waterTemp','airTemp','sky','moon'];
+// Full New Trip form field map: DOM id -> template key. Captures the WHOLE
+// form so a template is a complete snapshot (title and notes included). To
+// add a field later, add one line here and it's saved + applied automatically.
+const TRIP_TEMPLATE_MAP={
+  sTitle:'title', sCountry:'country', sState:'state', sWaterType:'waterType',
+  sWater:'water', sLaunch:'launch', sArea:'area', sPartners:'partners',
+  sBoat:'boat', sMethod:'method', sTechnique:'techniqueFocus', sTarget:'target',
+  sWeather:'weather', sClarity:'clarity', sFlow:'flow', sSpawn:'spawnPhase',
+  sTemp:'waterTemp', sAir:'airTemp', sSky:'sky', sMoon:'moon', sNotes:'notes'
+};
 function ensureTripTemplates(){ if(!Array.isArray(data.tripTemplates))data.tripTemplates=[]; return data.tripTemplates; }
 function tripTemplateSummary(t){ return [t.water,t.method].filter(Boolean).join(' • ')||'Trip setup'; }
 function tripTemplateIcon(t){ const w=String(t.waterType||'').toLowerCase();
@@ -688,7 +695,7 @@ function tripTemplateIcon(t){ const w=String(t.waterType||'').toLowerCase();
   return '🛶';
 }
 
-/* Build a template object from the current New Trip form's live values. */
+/* Build a template object that snapshots the ENTIRE New Trip form. */
 function saveCurrentTripAsTemplate(){
   const outs=ensureTripTemplates();
   if(outs.length>=MAX_TRIP_TEMPLATES){ toast('Template slots are full — remove one in the Rig Box'); return; }
@@ -696,13 +703,8 @@ function saveCurrentTripAsTemplate(){
   const name=(prompt('Name this trip template:', defName.slice(0,32))||'').trim();
   if(!name)return;
   const t={id:uid(),name:name.slice(0,40)};
-  // Read straight from the form fields so it captures whatever's on screen now.
-  t.country=val('sCountry'); t.state=val('sState'); t.waterType=val('sWaterType');
-  t.water=val('sWater'); t.launch=val('sLaunch'); t.area=val('sArea');
-  t.partners=val('sPartners'); t.boat=val('sBoat'); t.method=val('sMethod');
-  t.techniqueFocus=val('sTechnique'); t.target=val('sTarget'); t.weather=val('sWeather');
-  t.clarity=val('sClarity'); t.flow=val('sFlow'); t.spawnPhase=val('sSpawn');
-  t.waterTemp=val('sTemp'); t.airTemp=val('sAir'); t.sky=val('sSky'); t.moon=val('sMoon');
+  // Capture every field on the form via the single field map.
+  Object.keys(TRIP_TEMPLATE_MAP).forEach(id=>{ t[TRIP_TEMPLATE_MAP[id]]=val(id); });
   outs.push(t); save();
   if(window.FishSync){FishSync.touchProfile();FishSync.scheduleSync();}
   toast('📋 Saved “'+t.name+'” as a trip template');
@@ -719,18 +721,10 @@ function setFieldValue(id,value){
   } else { el.value=value; }
 }
 
-/* Apply a saved template into the open New Trip form. */
+/* Apply a saved template into the open New Trip form — fills the whole form. */
 function applyTripTemplate(id){
   const t=ensureTripTemplates().find(x=>x.id===id); if(!t)return;
-  setFieldValue('sCountry',t.country); setFieldValue('sState',t.state);
-  setFieldValue('sWaterType',t.waterType); setFieldValue('sWater',t.water);
-  setFieldValue('sLaunch',t.launch); setFieldValue('sArea',t.area);
-  setFieldValue('sPartners',t.partners); setFieldValue('sBoat',t.boat);
-  setFieldValue('sMethod',t.method); setFieldValue('sTechnique',t.techniqueFocus);
-  setFieldValue('sTarget',t.target); setFieldValue('sWeather',t.weather);
-  setFieldValue('sClarity',t.clarity); setFieldValue('sFlow',t.flow);
-  setFieldValue('sSpawn',t.spawnPhase); setFieldValue('sTemp',t.waterTemp);
-  setFieldValue('sAir',t.airTemp); setFieldValue('sSky',t.sky); setFieldValue('sMoon',t.moon);
+  Object.keys(TRIP_TEMPLATE_MAP).forEach(fid=>{ setFieldValue(fid, t[TRIP_TEMPLATE_MAP[fid]]); });
   // Highlight the active template chip.
   document.querySelectorAll('.trip-template-chip').forEach(c=>c.classList.toggle('active',c.dataset.tid===id));
   FishAudio.play('button'); haptic(12);
@@ -1146,15 +1140,13 @@ function toggleArchiveSeason(id){
 function openSessionSheet(){const cs=currentSeason();if(cs?.archived&&!confirm('This season is archived. Start a trip here anyway?\n\nUsually you should start a new season first from Rig Box.'))return;document.getElementById('sheetTitle').textContent='Where are we headed?';document.getElementById('sheetSub').textContent='Trip context makes on-water logging effortless.';document.getElementById('sheetBody').innerHTML=`${tripTemplateStrip()}<div class="details"><label>Trip Title<input id="sTitle" value="Morning Mist"></label><label>Country<select id="sCountry">${data.refs.countries.map(x=>`<option ${x==='United States'?'selected':''}>${esc(x)}</option>`).join('')}</select></label><label>State / Province<input id="sState" value="PA"></label><label>Water Type<select id="sWaterType">${data.refs.waterTypes.map(x=>`<option>${esc(x)}</option>`).join('')}</select></label><label>Water<select id="sWater">${data.refs.waters.map(x=>`<option>${esc(x)}</option>`).join('')}</select></label><label>Launch / Ramp<select id="sLaunch">${data.refs.launches.map(x=>`<option>${esc(x)}</option>`).join('')}</select></label><label>Area<input id="sArea" value="Harrisburg islands"></label><label>Partner / Crew<input id="sPartners" value="Brian" list="partnerList"><datalist id="partnerList">${data.refs.partners.map(x=>`<option value="${esc(x)}"></option>`).join('')}</datalist></label><label>Boat / Method<select id="sBoat">${data.refs.boats.map(x=>`<option>${esc(x)}</option>`).join('')}</select></label><label>Fishing Method<select id="sMethod">${data.refs.methods.map(x=>`<option>${esc(x)}</option>`).join('')}</select></label><label>Technique Focus<select id="sTechnique">${data.refs.techniqueFocus.map(x=>`<option>${esc(x)}</option>`).join('')}</select></label><label>Target Species<select id="sTarget">${data.refs.species.map(x=>`<option>${esc(x)}</option>`).join('')}</select></label><label>Weather<select id="sWeather">${data.refs.weather.map(x=>`<option ${x==='Partly cloudy'?'selected':''}>${esc(x)}</option>`).join('')}</select></label><label>Water Clarity<select id="sClarity">${data.refs.clarity.map(x=>`<option>${esc(x)}</option>`).join('')}</select></label><label>Flow / Current<select id="sFlow">${data.refs.flow.map(x=>`<option ${x==='Moderate current'?'selected':''}>${esc(x)}</option>`).join('')}</select></label><label>Spawn / Seasonal Phase<select id="sSpawn">${data.refs.spawnPhase.map(x=>`<option>${esc(x)}</option>`).join('')}</select></label><label>Water Temp<input id="sTemp" type="number" value="68"></label><label>Air Temp<input id="sAir" type="number" value="74"></label><label>Sky<select id="sSky">${data.refs.sky.map(x=>`<option>${esc(x)}</option>`).join('')}</select></label><label>Moon<select id="sMoon">${data.refs.moon.map(x=>`<option>${esc(x)}</option>`).join('')}</select></label><textarea id="sNotes">A new chapter begins.</textarea></div>`;document.getElementById('sheetActions').innerHTML=`<button class="btn" onclick="closeSheet()">Cancel</button><button class="btn" onclick="saveCurrentTripAsTemplate()">📋 Save as Template</button><button class="btn primary" onclick="saveSession()">Launch Trip</button>`;document.getElementById('sheet').classList.add('active')}function saveSession(){data.sessions.forEach(s=>{if(s.season===data.activeSeason)s.active=false});data.sessions.push({id:uid(),season:data.activeSeason,active:true,title:val('sTitle'),name:val('sTitle'),date:new Date().toISOString().slice(0,10),start:new Date().toTimeString().slice(0,5),end:'',country:val('sCountry'),state:val('sState')||'PA',waterType:val('sWaterType'),water:val('sWater'),launch:val('sLaunch'),area:val('sArea'),partners:val('sPartners').split(',').map(x=>x.trim()).filter(Boolean),boat:val('sBoat'),method:val('sMethod'),techniqueFocus:val('sTechnique'),weather:val('sWeather'),clarity:val('sClarity'),waterTemp:+val('sTemp')||'',airTemp:+val('sAir')||'',flow:val('sFlow'),wind:'',sky:val('sSky'),target:val('sTarget'),spawnPhase:val('sSpawn'),moon:val('sMoon'),notes:val('sNotes')});if(window.FishSync){FishSync.touch(data.sessions[data.sessions.length-1]);FishSync.scheduleSync();}viewedLivewellSessionId=activeSession()?.id;closeSheet();save();FishAudio.play('sonar');toast('The boat is in the water')}function val(id){return document.getElementById(id)?.value||''}
 function exportTripStory(id){const s=data.sessions.find(x=>x.id===id),text=`The River Remembers\n\n${s.title||s.name}\n${s.water} • ${s.date}\n\n${storyFor(s).replace(/<[^>]+>/g,'')}`;const b=new Blob([text],{type:'text/plain'}),a=document.createElement('a');a.href=URL.createObjectURL(b);a.download='FishSlayR_The_River_Remembers.txt';a.click();URL.revokeObjectURL(a.href)}
 function exportJSON(){const b=new Blob([JSON.stringify(data,null,2)],{type:'application/json'}),a=document.createElement('a');a.href=URL.createObjectURL(b);a.download='FishSlayR_GenesisIII_Journal.json';a.click();URL.revokeObjectURL(a.href);FishAudio.play('button')}function importJSON(e){const f=e.target.files[0];if(!f)return;const r=new FileReader();r.onload=()=>{try{data=JSON.parse(r.result);normalizeRefs();try{localStorage.setItem(KEY,JSON.stringify(data))}catch(e){} render();toast('FishSlayR data imported')}catch(err){toast('Import failed')}};r.readAsText(f);e.target.value=''}async function syncFromHome(){
-  // Not signed in yet → prompt for email and send a magic link.
+  // Not signed in yet → start Google sign-in (redirects to Google, comes back signed in).
   if(!window.FishAuth||!window.FishAuth.isSignedIn()){
-    const addr=prompt('Enter your email for cloud sync — we\'ll send a magic sign-in link:');
-    if(addr===null) return;                       // cancelled
     if(!window.FishAuth){toast('Cloud sync not ready');return;}
-    toast('Sending link…');
-    const {error}=await window.FishAuth.signIn(addr);
-    toast(error?'Could not send link':'Check your email ✓');
-    return;
+    toast('Opening Google sign-in…');
+    const {error}=await window.FishAuth.signIn();
+    if(error)toast('Could not start Google sign-in');
+    return;   // page will redirect to Google; on return the user is signed in
   }
   // Signed in → run a sync.
   if(!window.FishSync){toast('Cloud sync not ready');return;}
@@ -2627,7 +2619,7 @@ var FishSlayRHooks=window.FishSlayRHooks||{};
     '<div class="glass panel span8"><div class="rigbox-section-head"><div><h3>Season Manager</h3><p class="muted">Switch Seasons without moving data. Trips remain attached to the Season where they were logged.</p></div><div class="actions"><button class="btn small" onclick="openRenameSeasonSheet(&quot;'+esc(season.id)+'&quot;)">Rename Active</button><button class="btn small gold" onclick="toggleArchiveSeason(&quot;'+esc(season.id)+'&quot;)">'+(season.archived?'Reopen Season':'Archive Season')+'</button></div></div>'+seasonCardsV1()+'</div>'+
     '<div class="glass panel span4"><h3>How FishSlayR is organized</h3><p class="muted">The relationship is simple and permanent.</p><div class="rigbox-lineage"><div class="rigbox-lineage-node"><i>☀️</i><strong>Season</strong><small class="muted">The active context</small></div><div class="rigbox-lineage-arrow">→</div><div class="rigbox-lineage-node"><i>🛶</i><strong>Trip</strong><small class="muted">A day on the water</small></div><div class="rigbox-lineage-arrow">→</div><div class="rigbox-lineage-node"><i>🐟</i><strong>Fish</strong><small class="muted">A catch in that trip</small></div></div></div>'+
     '<div class="glass panel span6"><h3>Backups & Demo Data</h3><p class="muted">Export before major changes. Imports replace the current local journal.</p><div class="rigbox-tool-grid"><div class="rigbox-tool"><strong>Backup</strong><small>Save or restore the complete FishSlayR journal as JSON.</small><div class="actions"><button class="btn" onclick="exportJSON()">Export</button><button class="btn" onclick="document.getElementById(&quot;fileInput&quot;).click()">Import</button></div></div><div class="rigbox-tool"><strong>Demo</strong><small>Reload the full sample Season for feature testing.</small><button class="btn gold" onclick="clearData()">Load Demo Data</button></div></div></div>'+
-    '<div class="glass panel span6"><h3>Cloud Sync</h3>'+(window.FishAuth&&window.FishAuth.isSignedIn()?'<p class="muted">Signed in as <strong style="color:#cff4ff">'+esc(window.FishAuth.email()||'')+'</strong>. Your journal backs up and syncs across devices automatically.</p><div class="actions"><button class="btn" onclick="syncFromHome()">Sync Now</button><button class="btn danger" onclick="FishAuth.signOut()">Sign Out</button></div>':'<p class="muted">Sign in to back up your journal to the cloud and sync it across devices. We send a one-tap magic link — no password.</p><div class="actions"><button class="btn primary" onclick="syncFromHome()">Sign In for Cloud Sync</button></div>')+'</div>'+
+    '<div class="glass panel span6"><h3>Cloud Sync</h3>'+(window.FishAuth&&window.FishAuth.isSignedIn()?'<p class="muted">Signed in as <strong style="color:#cff4ff">'+esc(window.FishAuth.email()||'')+'</strong>. Your journal backs up and syncs across devices automatically.</p><div class="actions"><button class="btn" onclick="syncFromHome()">Sync Now</button><button class="btn danger" onclick="FishAuth.signOut()">Sign Out</button></div>':'<p class="muted">Sign in with Google to back up your journal to the cloud and sync it across devices. One tap — no password, no email link.</p><div class="actions"><button class="btn primary" onclick="syncFromHome()">Sign In with Google</button></div>')+'</div>'+
     '<div class="glass panel span12"><h3>Trip Templates</h3><p class="muted">Reusable trip setups. When starting a New Trip, tap a template to fill water, launch, crew, method, and conditions in one tap — then just tweak what changed. Create one by filling out a trip and tapping “Save as Template”.</p>'+(ensureTripTemplates().length?'<div class="trip-template-manager">'+ensureTripTemplates().map(function(t){return '<div class="trip-template-mcard"><strong>'+tripTemplateIcon(t)+' '+esc(t.name||'Trip')+'</strong><small>'+esc(tripTemplateSummary(t))+'</small><div class="actions"><button class="btn small danger" onclick="deleteTripTemplate(&quot;'+esc(t.id)+'&quot;)">Delete</button></div></div>'}).join('')+'</div>':'<p class="muted" style="opacity:.7">No templates yet. Start a trip, set it up how you like, and tap “Save as Template”.</p>')+'</div>'+
     '<div class="glass panel span6"><h3>App Preferences</h3><p class="muted">Choose the working view and FishAudio behavior.</p><div class="rigbox-tool-grid"><div class="rigbox-tool"><strong>Display Mode</strong><small>Dock for the full journal. Water for a focused on-water view.</small><div class="actions"><button class="btn '+(data.mode==='dock'?'primary':'')+'" onclick="setMode(&quot;dock&quot;)">Dock</button><button class="btn '+(data.mode==='water'?'primary':'')+'" onclick="setMode(&quot;water&quot;)">Water</button></div></div><div class="rigbox-tool"><strong>FishAudio</strong><small>'+(data.sound&&data.sound.enabled?'Sound is enabled.':'Sound is muted.')+'</small><div class="actions"><button class="btn" onclick="toggleSound();renderRigbox()">'+(data.sound&&data.sound.enabled?'Mute':'Enable Sound')+'</button><button class="btn" onclick="toggleAudioLab(true)">Audio Lab</button></div></div></div></div>'+
     '<details class="glass panel rigbox-library"><summary><span>Reference Library <small class="muted">Species, lures, waters, methods, conditions, and other defaults</small></span></summary><div class="rigbox-library-body"><p class="muted">These bundled choices power trip and catch forms. Export your journal before importing customized reference data.</p><div class="compact-ref">'+Object.entries(data.refs||{}).map(function(entry){return '<span class="chip">'+esc(entry[0])+': '+(Array.isArray(entry[1])?entry[1].length:0)+'</span>'}).join('')+'</div></div></details>'+
@@ -2683,9 +2675,12 @@ render();
     window.FishAuth={
       isSignedIn(){ return signedIn; },
       email(){ return email; },
-      async signIn(addr){
-        addr=(addr||'').trim(); if(!addr) return {error:'no-email'};
-        const {error}=await window.sb.auth.signInWithOtp({email:addr,options:{emailRedirectTo:window.location.href}});
+      async signIn(){
+        // Google OAuth. Redirects to Google, then back to this exact page.
+        const {error}=await window.sb.auth.signInWithOAuth({
+          provider:'google',
+          options:{ redirectTo: window.location.href }
+        });
         return {error};
       },
       async signOut(){
