@@ -2530,25 +2530,66 @@ render();
     'sb_publishable_JLxegOFEGvAMi6FZ6bozNg_h2kcKpVz'
   );
   function mountAuthBar(){
+    let expanded=false;           // panel open/closed
+    let signedIn=false;           // last known auth state (for the collapsed pill icon)
+
+    // Collapsed handle: a small pill that stays out of the way.
+    const pill=document.createElement('button');pill.id='authPill';
+    pill.style.cssText='position:fixed;top:10px;right:12px;z-index:9999;display:flex;gap:6px;align-items:center;cursor:pointer;padding:7px 11px;border-radius:999px;background:rgba(2,15,27,.72);border:1px solid rgba(125,231,255,.25);backdrop-filter:blur(12px);color:#cff4ff;font:800 13px Inter,sans-serif;box-shadow:0 8px 22px rgba(0,0,0,.28)';
+    document.body.appendChild(pill);
+
+    // Expanding panel: hidden until the pill is tapped.
     const bar=document.createElement('div');bar.id='authBar';
-    bar.style.cssText='position:fixed;top:10px;right:12px;z-index:9999;display:flex;gap:8px;align-items:center;padding:8px 12px;border-radius:16px;background:rgba(2,15,27,.72);border:1px solid rgba(125,231,255,.25);backdrop-filter:blur(12px);color:#cff4ff;font:600 13px Inter,sans-serif';
+    bar.style.cssText='position:fixed;top:52px;right:12px;z-index:9999;display:none;flex-direction:column;gap:8px;align-items:stretch;padding:12px;border-radius:18px;background:rgba(2,15,27,.86);border:1px solid rgba(125,231,255,.25);backdrop-filter:blur(14px);color:#cff4ff;font:600 13px Inter,sans-serif;box-shadow:0 16px 44px rgba(0,0,0,.4);min-width:210px;max-width:calc(100vw - 24px)';
     document.body.appendChild(bar);
+
+    function paintPill(status){
+      // status overrides the icon briefly (syncing / done); otherwise show auth state.
+      const icon = status==='syncing' ? '🔄' : status==='done' ? '✅' : (signedIn ? '☁️' : '🔌');
+      const label = status==='syncing' ? 'Syncing' : status==='done' ? 'Synced' : (signedIn ? 'Cloud' : 'Sign in');
+      pill.innerHTML=`<span style="font-size:14px;line-height:1">${icon}</span><span style="opacity:.85">${label}</span><span style="opacity:.5;font-size:11px">${expanded?'▲':'▼'}</span>`;
+    }
+
     async function paint(){
       const {data}=await window.sb.auth.getUser();const user=data&&data.user;
+      signedIn=!!user;
       if(user){
-        bar.innerHTML=`<span style="opacity:.8">☁️ ${user.email}</span><button id="fsSyncNow" style="cursor:pointer;border:0;border-radius:12px;padding:6px 10px;background:rgba(125,231,255,.18);color:#cff4ff;font-weight:800">Sync</button><button id="fsSignOut" style="cursor:pointer;border:0;border-radius:12px;padding:6px 10px;background:rgba(255,97,120,.18);color:#ffd6dc;font-weight:800">Sign out</button>`;
+        bar.innerHTML=`<div style="opacity:.8;font-size:12px;word-break:break-all;padding-bottom:2px">☁️ ${user.email}</div><button id="fsSyncNow" style="cursor:pointer;border:0;border-radius:12px;padding:9px 10px;background:rgba(125,231,255,.18);color:#cff4ff;font-weight:800">Sync now</button><button id="fsSignOut" style="cursor:pointer;border:0;border-radius:12px;padding:9px 10px;background:rgba(255,97,120,.18);color:#ffd6dc;font-weight:800">Sign out</button>`;
         bar.querySelector('#fsSignOut').onclick=async()=>{await window.sb.auth.signOut();paint();};
-        bar.querySelector('#fsSyncNow').onclick=()=>window.FishSync&&window.FishSync.syncNow();
+        bar.querySelector('#fsSyncNow').onclick=()=>{
+          if(!window.FishSync)return;
+          paintPill('syncing');
+          Promise.resolve(window.FishSync.syncNow()).finally(()=>{
+            paintPill('done');setTimeout(()=>paintPill(),1800);
+          });
+        };
       }else{
-        bar.innerHTML=`<input id="fsEmail" placeholder="email for cloud sync" style="border:1px solid rgba(125,231,255,.25);background:rgba(2,15,27,.6);color:#fff;border-radius:12px;padding:6px 10px;width:170px"><button id="fsSignIn" style="cursor:pointer;border:0;border-radius:12px;padding:6px 10px;background:rgba(125,231,255,.22);color:#021522;font-weight:900">Send link</button>`;
+        bar.innerHTML=`<div style="opacity:.8;font-size:12px;padding-bottom:2px">Cloud sync</div><input id="fsEmail" placeholder="email for cloud sync" style="border:1px solid rgba(125,231,255,.25);background:rgba(2,15,27,.6);color:#fff;border-radius:12px;padding:9px 10px;width:100%;box-sizing:border-box"><button id="fsSignIn" style="cursor:pointer;border:0;border-radius:12px;padding:9px 10px;background:rgba(125,231,255,.22);color:#021522;font-weight:900">Send magic link</button>`;
         bar.querySelector('#fsSignIn').onclick=async()=>{
           const email=bar.querySelector('#fsEmail').value.trim();if(!email)return;
           const {error}=await window.sb.auth.signInWithOtp({email,options:{emailRedirectTo:window.location.href}});
-          bar.querySelector('#fsSignIn').textContent=error?'Error':'Check email ✓';
+          bar.querySelector('#fsSignIn').textContent=error?'Error — try again':'Check your email ✓';
         };
       }
+      paintPill();
     }
-    paint();window.sb.auth.onAuthStateChange(()=>paint());
+
+    function setExpanded(v){
+      expanded=v;
+      bar.style.display=v?'flex':'none';
+      paintPill();
+    }
+    pill.onclick=(e)=>{e.stopPropagation();setExpanded(!expanded);};
+    // Tap anywhere outside the panel to collapse it.
+    document.addEventListener('click',(e)=>{
+      if(!expanded)return;
+      if(bar.contains(e.target)||pill.contains(e.target))return;
+      setExpanded(false);
+    });
+
+    paint();
+    setExpanded(false);
+    window.sb.auth.onAuthStateChange(()=>paint());
   }
   window.addEventListener('load',mountAuthBar);
 </script>
@@ -2570,11 +2611,20 @@ render();
    Because your app is one big non-module <script>, those are all globals on
    window already — this file just reads them.
    ============================================================================ */
-(function () {
+(function boot(attempt) {
   'use strict';
 
   // --- guards ---------------------------------------------------------------
-  if (!window.sb) { console.warn('[sync] Supabase client (window.sb) missing'); return; }
+  // The Supabase client is created in a `<script type="module">`, which is
+  // deferred and therefore runs AFTER this classic script. So on first pass
+  // window.sb may not exist yet. Instead of bailing permanently, wait for the
+  // module to set it, then initialize.
+  if (!window.sb) {
+    attempt = attempt || 0;
+    if (attempt > 200) { console.warn('[sync] Supabase client (window.sb) never appeared — sync disabled'); return; }
+    setTimeout(function(){ boot(attempt + 1); }, 50);
+    return;
+  }
 
   const LAST_PULL_KEY = 'fishslayr.lastPull';
   const PHOTO_BUCKET  = 'catch-photos';
