@@ -2,7 +2,7 @@
    index.html is intentionally NOT pre-cached and is always network-first,
    so new deploys show up on the next online load without a version bump.
    Bump CACHE_VERSION only when you change the icons/manifest asset list. */
-const CACHE_VERSION = 'fishslayr-v1.3.0';
+const CACHE_VERSION = 'fishslayr-v1.3.1';
 const ASSETS = [
   './manifest.webmanifest',
   './icon-192.png',
