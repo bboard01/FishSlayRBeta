@@ -1045,7 +1045,22 @@ function toggleArchiveSeason(id){
 }
 function openSessionSheet(){const cs=currentSeason();if(cs?.archived&&!confirm('This season is archived. Start a trip here anyway?\n\nUsually you should start a new season first from Rig Box.'))return;document.getElementById('sheetTitle').textContent='Where are we headed?';document.getElementById('sheetSub').textContent='Trip context makes on-water logging effortless.';document.getElementById('sheetBody').innerHTML=`<div class="details"><label>Trip Title<input id="sTitle" value="Morning Mist"></label><label>Country<select id="sCountry">${data.refs.countries.map(x=>`<option ${x==='United States'?'selected':''}>${esc(x)}</option>`).join('')}</select></label><label>State / Province<input id="sState" value="PA"></label><label>Water Type<select id="sWaterType">${data.refs.waterTypes.map(x=>`<option>${esc(x)}</option>`).join('')}</select></label><label>Water<select id="sWater">${data.refs.waters.map(x=>`<option>${esc(x)}</option>`).join('')}</select></label><label>Launch / Ramp<select id="sLaunch">${data.refs.launches.map(x=>`<option>${esc(x)}</option>`).join('')}</select></label><label>Area<input id="sArea" value="Harrisburg islands"></label><label>Partner / Crew<input id="sPartners" value="Brian" list="partnerList"><datalist id="partnerList">${data.refs.partners.map(x=>`<option value="${esc(x)}"></option>`).join('')}</datalist></label><label>Boat / Method<select id="sBoat">${data.refs.boats.map(x=>`<option>${esc(x)}</option>`).join('')}</select></label><label>Fishing Method<select id="sMethod">${data.refs.methods.map(x=>`<option>${esc(x)}</option>`).join('')}</select></label><label>Technique Focus<select id="sTechnique">${data.refs.techniqueFocus.map(x=>`<option>${esc(x)}</option>`).join('')}</select></label><label>Target Species<select id="sTarget">${data.refs.species.map(x=>`<option>${esc(x)}</option>`).join('')}</select></label><label>Weather<select id="sWeather">${data.refs.weather.map(x=>`<option ${x==='Partly cloudy'?'selected':''}>${esc(x)}</option>`).join('')}</select></label><label>Water Clarity<select id="sClarity">${data.refs.clarity.map(x=>`<option>${esc(x)}</option>`).join('')}</select></label><label>Flow / Current<select id="sFlow">${data.refs.flow.map(x=>`<option ${x==='Moderate current'?'selected':''}>${esc(x)}</option>`).join('')}</select></label><label>Spawn / Seasonal Phase<select id="sSpawn">${data.refs.spawnPhase.map(x=>`<option>${esc(x)}</option>`).join('')}</select></label><label>Water Temp<input id="sTemp" type="number" value="68"></label><label>Air Temp<input id="sAir" type="number" value="74"></label><label>Sky<select id="sSky">${data.refs.sky.map(x=>`<option>${esc(x)}</option>`).join('')}</select></label><label>Moon<select id="sMoon">${data.refs.moon.map(x=>`<option>${esc(x)}</option>`).join('')}</select></label><textarea id="sNotes">A new chapter begins.</textarea></div>`;document.getElementById('sheetActions').innerHTML=`<button class="btn" onclick="closeSheet()">Cancel</button><button class="btn primary" onclick="saveSession()">Launch Trip</button>`;document.getElementById('sheet').classList.add('active')}function saveSession(){data.sessions.forEach(s=>{if(s.season===data.activeSeason)s.active=false});data.sessions.push({id:uid(),season:data.activeSeason,active:true,title:val('sTitle'),name:val('sTitle'),date:new Date().toISOString().slice(0,10),start:new Date().toTimeString().slice(0,5),end:'',country:val('sCountry'),state:val('sState')||'PA',waterType:val('sWaterType'),water:val('sWater'),launch:val('sLaunch'),area:val('sArea'),partners:val('sPartners').split(',').map(x=>x.trim()).filter(Boolean),boat:val('sBoat'),method:val('sMethod'),techniqueFocus:val('sTechnique'),weather:val('sWeather'),clarity:val('sClarity'),waterTemp:+val('sTemp')||'',airTemp:+val('sAir')||'',flow:val('sFlow'),wind:'',sky:val('sSky'),target:val('sTarget'),spawnPhase:val('sSpawn'),moon:val('sMoon'),notes:val('sNotes')});if(window.FishSync){FishSync.touch(data.sessions[data.sessions.length-1]);FishSync.scheduleSync();}viewedLivewellSessionId=activeSession()?.id;closeSheet();save();FishAudio.play('sonar');toast('The boat is in the water')}function val(id){return document.getElementById(id)?.value||''}
 function exportTripStory(id){const s=data.sessions.find(x=>x.id===id),text=`The River Remembers\n\n${s.title||s.name}\n${s.water} • ${s.date}\n\n${storyFor(s).replace(/<[^>]+>/g,'')}`;const b=new Blob([text],{type:'text/plain'}),a=document.createElement('a');a.href=URL.createObjectURL(b);a.download='FishSlayR_The_River_Remembers.txt';a.click();URL.revokeObjectURL(a.href)}
-function exportJSON(){const b=new Blob([JSON.stringify(data,null,2)],{type:'application/json'}),a=document.createElement('a');a.href=URL.createObjectURL(b);a.download='FishSlayR_GenesisIII_Journal.json';a.click();URL.revokeObjectURL(a.href);FishAudio.play('button')}function importJSON(e){const f=e.target.files[0];if(!f)return;const r=new FileReader();r.onload=()=>{try{data=JSON.parse(r.result);normalizeRefs();try{localStorage.setItem(KEY,JSON.stringify(data))}catch(e){} render();toast('FishSlayR data imported')}catch(err){toast('Import failed')}};r.readAsText(f);e.target.value=''}function syncFromHome(){if(!window.FishSync){toast('Cloud sync not ready');return;}toast('Syncing…');Promise.resolve(window.FishSync.syncNow()).then(()=>toast('☁️ Synced')).catch(()=>toast('Sync failed'));}
+function exportJSON(){const b=new Blob([JSON.stringify(data,null,2)],{type:'application/json'}),a=document.createElement('a');a.href=URL.createObjectURL(b);a.download='FishSlayR_GenesisIII_Journal.json';a.click();URL.revokeObjectURL(a.href);FishAudio.play('button')}function importJSON(e){const f=e.target.files[0];if(!f)return;const r=new FileReader();r.onload=()=>{try{data=JSON.parse(r.result);normalizeRefs();try{localStorage.setItem(KEY,JSON.stringify(data))}catch(e){} render();toast('FishSlayR data imported')}catch(err){toast('Import failed')}};r.readAsText(f);e.target.value=''}async function syncFromHome(){
+  // Not signed in yet → prompt for email and send a magic link.
+  if(!window.FishAuth||!window.FishAuth.isSignedIn()){
+    const addr=prompt('Enter your email for cloud sync — we\'ll send a magic sign-in link:');
+    if(addr===null) return;                       // cancelled
+    if(!window.FishAuth){toast('Cloud sync not ready');return;}
+    toast('Sending link…');
+    const {error}=await window.FishAuth.signIn(addr);
+    toast(error?'Could not send link':'Check your email ✓');
+    return;
+  }
+  // Signed in → run a sync.
+  if(!window.FishSync){toast('Cloud sync not ready');return;}
+  toast('Syncing…');
+  Promise.resolve(window.FishSync.syncNow()).then(()=>toast('☁️ Synced')).catch(()=>toast('Sync failed'));
+}
 function clearData(){if(confirm('Load the demo sample data? This will replace current local FishSlayR trips and catches.')){data=sample();normalizeRefs();viewedLivewellSessionId=null;lastCatchId=null;activePage='boathouse';lastDockPage='boathouse';save();toast('Demo data loaded')}}function clearAllTestData(){if(!confirm('Clear all fishing test data?\n\nThis removes trips, catches, livewells, campfire stories, waters visited, trophy progress, and intelligence history.\n\nYour option lists stay available.'))return;const year=String(new Date().getFullYear());const refs=JSON.parse(JSON.stringify(data.refs||DEFAULT_REFS));const sound=JSON.parse(JSON.stringify(data.sound||{enabled:false,master:.68,effects:.75,haptics:true}));photoClearAll();data={version:'Genesis III Journal Foundation',mode:data.mode||'dock',sound,activeSeason:year,seasons:[{id:year,name:year+' — New Season',archived:false}],refs,sessions:[],catches:[]};normalizeRefs();viewedLivewellSessionId=null;lastCatchId=null;catchDraft={};catchStep=0;activePage='boathouse';lastDockPage='boathouse';save();toast('🌊 The river is quiet again. Ready for another adventure.')}
 function unlock(){const AC=window.AudioContext||window.webkitAudioContext;if(!AC)return null;if(!audioCtx)audioCtx=new AC();if(audioCtx.state==='suspended')audioCtx.resume();return audioCtx}function soundOn(){return data.sound?.enabled}function toggleSound(){data.sound=data.sound||{};data.sound.enabled=!data.sound.enabled;localStorage.setItem(KEY,JSON.stringify(data));if(window.FishSync){FishSync.touchProfile();FishSync.scheduleSync();}renderShell();if(data.sound.enabled){unlock();FishAudio.play('sonar');toast('FishAudio enabled')}else toast('Sound muted')}function haptic(p=12){if(data.sound?.haptics&&navigator.vibrate)try{navigator.vibrate(p)}catch(e){}}function gain(v=.1){return v*(data.sound?.master??.65)*(data.sound?.effects??.75)}function tone(f=440,d=.18,type='sine',g=.12,when=0,to=null){if(!soundOn())return;const ctx=unlock();if(!ctx)return;const o=ctx.createOscillator(),gn=ctx.createGain();o.type=type;o.frequency.setValueAtTime(f,ctx.currentTime+when);if(to)o.frequency.exponentialRampToValueAtTime(Math.max(20,to),ctx.currentTime+when+d);gn.gain.setValueAtTime(.0001,ctx.currentTime+when);gn.gain.exponentialRampToValueAtTime(gain(g),ctx.currentTime+when+.02);gn.gain.exponentialRampToValueAtTime(.0001,ctx.currentTime+when+d);o.connect(gn);gn.connect(ctx.destination);o.start(ctx.currentTime+when);o.stop(ctx.currentTime+when+d+.05)}function noise(d=.18,g=.08,f=900,when=0){if(!soundOn())return;const ctx=unlock();if(!ctx)return;const len=Math.floor(ctx.sampleRate*d),buf=ctx.createBuffer(1,len,ctx.sampleRate),out=buf.getChannelData(0);for(let i=0;i<len;i++)out[i]=(Math.random()*2-1)*(1-i/len);const src=ctx.createBufferSource(),filter=ctx.createBiquadFilter(),gn=ctx.createGain();src.buffer=buf;filter.type='lowpass';filter.frequency.value=f;gn.gain.setValueAtTime(gain(g),ctx.currentTime+when);gn.gain.exponentialRampToValueAtTime(.0001,ctx.currentTime+when+d);src.connect(filter);filter.connect(gn);gn.connect(ctx.destination);src.start(ctx.currentTime+when);src.stop(ctx.currentTime+when+d+.04)}const FishAudio={play(name){if(!soundOn())return;({button:()=>tone(620,.08,'sine',.05),sonar:()=>{tone(260,.45,'sine',.08,0,880);tone(520,.3,'sine',.035,.1,1040)},splash:()=>{noise(.34,.11,900);tone(120,.18,'triangle',.05,0,70);noise(.13,.04,2400,.12)},pb:()=>{noise(.32,.12,1100);tone(520,.18,'sine',.08);tone(780,.18,'sine',.06,.08);tone(1040,.28,'sine',.045,.17)},chapter:()=>{tone(190,.55,'sine',.06);tone(380,.65,'triangle',.035,.08);noise(.6,.035,700,.18)},error:()=>tone(110,.18,'sawtooth',.05)}[name]||(()=>tone()))()}};
 function wideRipple(e){let x=innerWidth/2,y=innerHeight/2;if(e&&e.clientX){x=e.clientX;y=e.clientY}const r=document.createElement('span');r.className='ripple-ring';r.style.left=x+'px';r.style.top=y+'px';document.body.appendChild(r);const r2=r.cloneNode();r2.className='ripple-ring second';document.body.appendChild(r2);setTimeout(()=>{r.remove();r2.remove()},1400)}document.addEventListener('click',e=>{if(e.target.closest('button')){FishAudio.play('button');wideRipple(e)}});
@@ -2495,6 +2510,7 @@ var FishSlayRHooks=window.FishSlayRHooks||{};
     '<div class="glass panel span8"><div class="rigbox-section-head"><div><h3>Season Manager</h3><p class="muted">Switch Seasons without moving data. Trips remain attached to the Season where they were logged.</p></div><div class="actions"><button class="btn small" onclick="openRenameSeasonSheet(&quot;'+esc(season.id)+'&quot;)">Rename Active</button><button class="btn small gold" onclick="toggleArchiveSeason(&quot;'+esc(season.id)+'&quot;)">'+(season.archived?'Reopen Season':'Archive Season')+'</button></div></div>'+seasonCardsV1()+'</div>'+
     '<div class="glass panel span4"><h3>How FishSlayR is organized</h3><p class="muted">The relationship is simple and permanent.</p><div class="rigbox-lineage"><div class="rigbox-lineage-node"><i>☀️</i><strong>Season</strong><small class="muted">The active context</small></div><div class="rigbox-lineage-arrow">→</div><div class="rigbox-lineage-node"><i>🛶</i><strong>Trip</strong><small class="muted">A day on the water</small></div><div class="rigbox-lineage-arrow">→</div><div class="rigbox-lineage-node"><i>🐟</i><strong>Fish</strong><small class="muted">A catch in that trip</small></div></div></div>'+
     '<div class="glass panel span6"><h3>Backups & Demo Data</h3><p class="muted">Export before major changes. Imports replace the current local journal.</p><div class="rigbox-tool-grid"><div class="rigbox-tool"><strong>Backup</strong><small>Save or restore the complete FishSlayR journal as JSON.</small><div class="actions"><button class="btn" onclick="exportJSON()">Export</button><button class="btn" onclick="document.getElementById(&quot;fileInput&quot;).click()">Import</button></div></div><div class="rigbox-tool"><strong>Demo</strong><small>Reload the full sample Season for feature testing.</small><button class="btn gold" onclick="clearData()">Load Demo Data</button></div></div></div>'+
+    '<div class="glass panel span6"><h3>Cloud Sync</h3>'+(window.FishAuth&&window.FishAuth.isSignedIn()?'<p class="muted">Signed in as <strong style="color:#cff4ff">'+esc(window.FishAuth.email()||'')+'</strong>. Your journal backs up and syncs across devices automatically.</p><div class="actions"><button class="btn" onclick="syncFromHome()">Sync Now</button><button class="btn danger" onclick="FishAuth.signOut()">Sign Out</button></div>':'<p class="muted">Sign in to back up your journal to the cloud and sync it across devices. We send a one-tap magic link — no password.</p><div class="actions"><button class="btn primary" onclick="syncFromHome()">Sign In for Cloud Sync</button></div>')+'</div>'+
     '<div class="glass panel span6"><h3>App Preferences</h3><p class="muted">Choose the working view and FishAudio behavior.</p><div class="rigbox-tool-grid"><div class="rigbox-tool"><strong>Display Mode</strong><small>Dock for the full journal. Water for a focused on-water view.</small><div class="actions"><button class="btn '+(data.mode==='dock'?'primary':'')+'" onclick="setMode(&quot;dock&quot;)">Dock</button><button class="btn '+(data.mode==='water'?'primary':'')+'" onclick="setMode(&quot;water&quot;)">Water</button></div></div><div class="rigbox-tool"><strong>FishAudio</strong><small>'+(data.sound&&data.sound.enabled?'Sound is enabled.':'Sound is muted.')+'</small><div class="actions"><button class="btn" onclick="toggleSound();renderRigbox()">'+(data.sound&&data.sound.enabled?'Mute':'Enable Sound')+'</button><button class="btn" onclick="toggleAudioLab(true)">Audio Lab</button></div></div></div></div>'+
     '<details class="glass panel rigbox-library"><summary><span>Reference Library <small class="muted">Species, lures, waters, methods, conditions, and other defaults</small></span></summary><div class="rigbox-library-body"><p class="muted">These bundled choices power trip and catch forms. Export your journal before importing customized reference data.</p><div class="compact-ref">'+Object.entries(data.refs||{}).map(function(entry){return '<span class="chip">'+esc(entry[0])+': '+(Array.isArray(entry[1])?entry[1].length:0)+'</span>'}).join('')+'</div></div></details>'+
     '<div class="glass panel span12 rigbox-danger"><div class="rigbox-danger-layout"><div><h3>Factory Reset</h3><p class="muted">Permanently remove every local Season, trip, fish, preference, filter, and custom choice. Export a backup first if anything matters.</p></div><div class="actions"><button class="btn danger" onclick="clearAllTestData()">Factory Reset FishSlayR</button></div></div></div>'+
@@ -2530,69 +2546,40 @@ render();
     'https://fbiwhttuivxhxpzbhsfu.supabase.co',
     'sb_publishable_JLxegOFEGvAMi6FZ6bozNg_h2kcKpVz'
   );
-  function mountAuthBar(){
-    let expanded=false;           // panel open/closed
-    let signedIn=false;           // last known auth state (for the collapsed pill icon)
+  // Headless auth controller — no floating UI. The topbar "☁️ Sync" button and
+  // the Rig Box "Sign out" button drive this via window.FishAuth.
+  function mountAuth(){
+    let signedIn=false;
+    let email=null;
 
-    // Collapsed handle: a small pill that stays out of the way.
-    const pill=document.createElement('button');pill.id='authPill';
-    pill.style.cssText='position:fixed;top:10px;right:12px;z-index:9999;display:flex;gap:6px;align-items:center;cursor:pointer;padding:7px 11px;border-radius:999px;background:rgba(2,15,27,.72);border:1px solid rgba(125,231,255,.25);backdrop-filter:blur(12px);color:#cff4ff;font:800 13px Inter,sans-serif;box-shadow:0 8px 22px rgba(0,0,0,.28)';
-    document.body.appendChild(pill);
-
-    // Expanding panel: hidden until the pill is tapped.
-    const bar=document.createElement('div');bar.id='authBar';
-    bar.style.cssText='position:fixed;top:52px;right:12px;z-index:9999;display:none;flex-direction:column;gap:8px;align-items:stretch;padding:12px;border-radius:18px;background:rgba(2,15,27,.86);border:1px solid rgba(125,231,255,.25);backdrop-filter:blur(14px);color:#cff4ff;font:600 13px Inter,sans-serif;box-shadow:0 16px 44px rgba(0,0,0,.4);min-width:210px;max-width:calc(100vw - 24px)';
-    document.body.appendChild(bar);
-
-    function paintPill(status){
-      // status overrides the icon briefly (syncing / done); otherwise show auth state.
-      const icon = status==='syncing' ? '🔄' : status==='done' ? '✅' : (signedIn ? '☁️' : '🔌');
-      const label = status==='syncing' ? 'Syncing' : status==='done' ? 'Synced' : (signedIn ? 'Cloud' : 'Sign in');
-      pill.innerHTML=`<span style="font-size:14px;line-height:1">${icon}</span><span style="opacity:.85">${label}</span><span style="opacity:.5;font-size:11px">${expanded?'▲':'▼'}</span>`;
+    async function refresh(){
+      try{
+        const {data}=await window.sb.auth.getUser();
+        const user=data&&data.user;
+        signedIn=!!user; email=user?user.email:null;
+      }catch(e){ signedIn=false; email=null; }
+      // Let the app repaint anything that shows auth state (e.g. Rig Box).
+      if(typeof window.render==='function') try{ window.render(); }catch(e){}
     }
 
-    async function paint(){
-      const {data}=await window.sb.auth.getUser();const user=data&&data.user;
-      signedIn=!!user;
-      if(user){
-        bar.innerHTML=`<div style="opacity:.8;font-size:12px;word-break:break-all;padding-bottom:2px">☁️ ${user.email}</div><button id="fsSyncNow" style="cursor:pointer;border:0;border-radius:12px;padding:9px 10px;background:rgba(125,231,255,.18);color:#cff4ff;font-weight:800">Sync now</button><button id="fsSignOut" style="cursor:pointer;border:0;border-radius:12px;padding:9px 10px;background:rgba(255,97,120,.18);color:#ffd6dc;font-weight:800">Sign out</button>`;
-        bar.querySelector('#fsSignOut').onclick=async()=>{await window.sb.auth.signOut();paint();};
-        bar.querySelector('#fsSyncNow').onclick=()=>{
-          if(!window.FishSync)return;
-          paintPill('syncing');
-          Promise.resolve(window.FishSync.syncNow()).finally(()=>{
-            paintPill('done');setTimeout(()=>paintPill(),1800);
-          });
-        };
-      }else{
-        bar.innerHTML=`<div style="opacity:.8;font-size:12px;padding-bottom:2px">Cloud sync</div><input id="fsEmail" placeholder="email for cloud sync" style="border:1px solid rgba(125,231,255,.25);background:rgba(2,15,27,.6);color:#fff;border-radius:12px;padding:9px 10px;width:100%;box-sizing:border-box"><button id="fsSignIn" style="cursor:pointer;border:0;border-radius:12px;padding:9px 10px;background:rgba(125,231,255,.22);color:#021522;font-weight:900">Send magic link</button>`;
-        bar.querySelector('#fsSignIn').onclick=async()=>{
-          const email=bar.querySelector('#fsEmail').value.trim();if(!email)return;
-          const {error}=await window.sb.auth.signInWithOtp({email,options:{emailRedirectTo:window.location.href}});
-          bar.querySelector('#fsSignIn').textContent=error?'Error — try again':'Check your email ✓';
-        };
+    window.FishAuth={
+      isSignedIn(){ return signedIn; },
+      email(){ return email; },
+      async signIn(addr){
+        addr=(addr||'').trim(); if(!addr) return {error:'no-email'};
+        const {error}=await window.sb.auth.signInWithOtp({email:addr,options:{emailRedirectTo:window.location.href}});
+        return {error};
+      },
+      async signOut(){
+        await window.sb.auth.signOut();
+        await refresh();
       }
-      paintPill();
-    }
+    };
 
-    function setExpanded(v){
-      expanded=v;
-      bar.style.display=v?'flex':'none';
-      paintPill();
-    }
-    pill.onclick=(e)=>{e.stopPropagation();setExpanded(!expanded);};
-    // Tap anywhere outside the panel to collapse it.
-    document.addEventListener('click',(e)=>{
-      if(!expanded)return;
-      if(bar.contains(e.target)||pill.contains(e.target))return;
-      setExpanded(false);
-    });
-
-    paint();
-    setExpanded(false);
-    window.sb.auth.onAuthStateChange(()=>paint());
+    refresh();
+    window.sb.auth.onAuthStateChange(()=>refresh());
   }
-  window.addEventListener('load',mountAuthBar);
+  window.addEventListener('load',mountAuth);
 </script>
 <script>
 /* ============================================================================
