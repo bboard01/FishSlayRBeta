@@ -8,4 +8,4 @@ This folder is a complete, installable Progressive Web App. You can install it o
 - `service-worker.js` — makes the app work offline once installed
 - `icon-192.png`, `icon-512.png`, `icon-512-maskable.png`, `apple-touch-icon.png` — app icons
 
-Installing the PWA does not upload anything to GitHub or anywhere else.
+Installing the PWA does not upload anything to GitHub or anywhere else. 
