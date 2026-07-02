@@ -403,6 +403,20 @@ body[data-mood="night"]{background:radial-gradient(circle at 70% -8%,rgba(125,23
 .loadout-chip small{display:block;color:var(--muted);font-size:.76rem}
 .loadout-hint{margin-top:16px;border-top:1px solid rgba(125,231,255,.16);padding-top:14px;font-size:.86rem}
 .save-loadout-row{margin-top:12px}
+.trip-template-picker{margin:0 0 16px;padding-bottom:14px;border-bottom:1px solid rgba(125,231,255,.16)}
+.trip-template-row{display:flex;gap:8px;overflow-x:auto;padding-bottom:4px;-webkit-overflow-scrolling:touch;scrollbar-width:none;margin-top:8px}
+.trip-template-row::-webkit-scrollbar{display:none}
+.trip-template-chip{flex:0 0 auto;min-width:140px;border:1px solid rgba(255,211,107,.28);background:rgba(255,211,107,.07);border-radius:16px;padding:10px 12px;text-align:left;cursor:pointer;transition:.18s;color:#eaffff}
+.trip-template-chip:hover{transform:translateY(-2px);border-color:rgba(255,211,107,.55)}
+.trip-template-chip.active{background:linear-gradient(135deg,rgba(255,227,157,.26),rgba(255,189,66,.18));border-color:rgba(255,255,255,.4)}
+.trip-template-chip .tt-icon{font-size:1.2rem}
+.trip-template-chip strong{display:block;font-size:.92rem;margin:2px 0}
+.trip-template-chip small{display:block;color:var(--muted);font-size:.76rem}
+.trip-template-hint{margin:0 0 16px;padding-bottom:14px;border-bottom:1px solid rgba(125,231,255,.16);font-size:.86rem}
+.trip-template-manager{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:10px;margin-top:6px}
+.trip-template-mcard{border:1px solid rgba(255,211,107,.22);background:linear-gradient(145deg,rgba(255,211,107,.08),rgba(255,255,255,.04));border-radius:18px;padding:12px;min-width:0}
+.trip-template-mcard strong{display:block;overflow-wrap:anywhere}
+.trip-template-mcard small{display:block;color:var(--muted);margin:4px 0 10px}
 </style>
 </head>
 <body>
@@ -655,6 +669,92 @@ function saveCurrentAsLoadout(){
   outs.push(l); save(); refreshTackleBox(); toast('🧰 Saved “'+l.name+'” to your Tackle Box');
 }
 
+/* ============================================================================
+   TRIP TEMPLATES — the "loadout" pattern applied to trips.
+   A template stores the repeatable trip-context fields so starting a trip is
+   pick-a-template → tweak → launch, instead of filling ~20 fields every time.
+   ========================================================================== */
+const MAX_TRIP_TEMPLATES=8;
+// Fields a template carries over. Mirrors the New Trip form (openSessionSheet),
+// minus per-trip things like title/notes/date/time.
+const TRIP_TEMPLATE_FIELDS=['country','state','waterType','water','launch','area',
+  'partners','boat','method','techniqueFocus','target','weather','clarity','flow',
+  'spawnPhase','waterTemp','airTemp','sky','moon'];
+function ensureTripTemplates(){ if(!Array.isArray(data.tripTemplates))data.tripTemplates=[]; return data.tripTemplates; }
+function tripTemplateSummary(t){ return [t.water,t.method].filter(Boolean).join(' • ')||'Trip setup'; }
+function tripTemplateIcon(t){ const w=String(t.waterType||'').toLowerCase();
+  if(w.includes('river')||w.includes('creek')||w.includes('stream'))return '🏞️';
+  if(w.includes('lake')||w.includes('reservoir')||w.includes('pond'))return '🌅';
+  return '🛶';
+}
+
+/* Build a template object from the current New Trip form's live values. */
+function saveCurrentTripAsTemplate(){
+  const outs=ensureTripTemplates();
+  if(outs.length>=MAX_TRIP_TEMPLATES){ toast('Template slots are full — remove one in the Rig Box'); return; }
+  const defName=(val('sWater')||'Trip')+(val('sMethod')?' — '+val('sMethod'):'');
+  const name=(prompt('Name this trip template:', defName.slice(0,32))||'').trim();
+  if(!name)return;
+  const t={id:uid(),name:name.slice(0,40)};
+  // Read straight from the form fields so it captures whatever's on screen now.
+  t.country=val('sCountry'); t.state=val('sState'); t.waterType=val('sWaterType');
+  t.water=val('sWater'); t.launch=val('sLaunch'); t.area=val('sArea');
+  t.partners=val('sPartners'); t.boat=val('sBoat'); t.method=val('sMethod');
+  t.techniqueFocus=val('sTechnique'); t.target=val('sTarget'); t.weather=val('sWeather');
+  t.clarity=val('sClarity'); t.flow=val('sFlow'); t.spawnPhase=val('sSpawn');
+  t.waterTemp=val('sTemp'); t.airTemp=val('sAir'); t.sky=val('sSky'); t.moon=val('sMoon');
+  outs.push(t); save();
+  if(window.FishSync){FishSync.touchProfile();FishSync.scheduleSync();}
+  toast('📋 Saved “'+t.name+'” as a trip template');
+  // Re-open the sheet so the new template appears in the picker strip.
+  openSessionSheet(); setTimeout(()=>applyTripTemplate(t.id),30);
+}
+
+/* Set a select/input's value if the option exists (selects) or always (inputs). */
+function setFieldValue(id,value){
+  const el=document.getElementById(id); if(!el||value==null||value==='')return;
+  if(el.tagName==='SELECT'){
+    const has=Array.from(el.options).some(o=>o.value===value);
+    if(has)el.value=value; // only set if the option exists, else leave default
+  } else { el.value=value; }
+}
+
+/* Apply a saved template into the open New Trip form. */
+function applyTripTemplate(id){
+  const t=ensureTripTemplates().find(x=>x.id===id); if(!t)return;
+  setFieldValue('sCountry',t.country); setFieldValue('sState',t.state);
+  setFieldValue('sWaterType',t.waterType); setFieldValue('sWater',t.water);
+  setFieldValue('sLaunch',t.launch); setFieldValue('sArea',t.area);
+  setFieldValue('sPartners',t.partners); setFieldValue('sBoat',t.boat);
+  setFieldValue('sMethod',t.method); setFieldValue('sTechnique',t.techniqueFocus);
+  setFieldValue('sTarget',t.target); setFieldValue('sWeather',t.weather);
+  setFieldValue('sClarity',t.clarity); setFieldValue('sFlow',t.flow);
+  setFieldValue('sSpawn',t.spawnPhase); setFieldValue('sTemp',t.waterTemp);
+  setFieldValue('sAir',t.airTemp); setFieldValue('sSky',t.sky); setFieldValue('sMoon',t.moon);
+  // Highlight the active template chip.
+  document.querySelectorAll('.trip-template-chip').forEach(c=>c.classList.toggle('active',c.dataset.tid===id));
+  FishAudio.play('button'); haptic(12);
+  toast('📋 '+(t.name||'Template')+' loaded — tweak and launch');
+}
+
+/* Delete a template (used by the Rig Box manager). */
+function deleteTripTemplate(id){
+  const outs=ensureTripTemplates();
+  const i=outs.findIndex(x=>x.id===id); if(i<0)return;
+  if(!confirm('Delete the “'+(outs[i].name||'template')+'” trip template?'))return;
+  outs.splice(i,1); save();
+  if(window.FishSync){FishSync.touchProfile();FishSync.scheduleSync();}
+  if(typeof renderRigbox==='function')renderRigbox();
+  toast('Template deleted');
+}
+
+/* Picker strip shown at the top of the New Trip sheet. */
+function tripTemplateStrip(){
+  const outs=ensureTripTemplates();
+  if(!outs.length)return `<div class="trip-template-hint muted">Tip: fill this out once, then tap “Save as template” below — next time it’s one tap to reload it all.</div>`;
+  return `<div class="trip-template-picker"><span class="eyebrow">Trip Templates — tap to load</span><div class="trip-template-row">${outs.map(t=>`<button type="button" class="trip-template-chip" data-tid="${esc(t.id)}" onclick="applyTripTemplate('${safeJs(t.id)}')"><span class="tt-icon">${tripTemplateIcon(t)}</span><strong>${esc(t.name||'Trip')}</strong><small>${esc(tripTemplateSummary(t))}</small></button>`).join('')}</div></div>`;
+}
+
 /* ---- Tackle Box loadout manager UI (rendered by renderTackle) ---- */
 function loadoutManagerHTML(){
   const outs=ensureLoadouts();
@@ -705,7 +805,7 @@ function deleteLoadout(idx){
   outs.splice(idx,1); save(); refreshTackleBox(); toast('Loadout removed');
 }
 
-function esc(s){return String(s??'').replace(/[&<>'"]/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[m]))}function toast(msg){const t=document.getElementById('toast');t.textContent=msg;t.style.display='block';setTimeout(()=>t.style.display='none',2300)}function setPage(id){activePage=id;if(data.mode!=='water')lastDockPage=id;document.querySelectorAll('.page').forEach(p=>p.classList.toggle('active',p.id===id));renderNav();FishAudio.play('button')}function setSeason(id){data.activeSeason=id;save();if(window.FishSync){FishSync.touchProfile();FishSync.scheduleSync();}toast('Season changed to '+seasonDisplayName(currentSeason()||{id}))}function currentSeason(){return data.seasons.find(s=>s.id===data.activeSeason)||data.seasons[0]}function seasonDisplayName(s){return (s?.name||s?.id||'Season')+(s?.archived?' ✓ Archived':'')}function setMode(m){if(m==='water'){lastDockPage=activePage||lastDockPage||'boathouse';activePage='boathouse'}else{activePage=lastDockPage||'boathouse'}data.mode=m;try{localStorage.setItem(KEY,JSON.stringify(data))}catch(e){} if(window.FishSync){FishSync.touchProfile();FishSync.scheduleSync();} render();FishAudio.play('sonar');toast(m==='water'?'Water Mode engaged':'Dock Mode engaged')}function seasonSessions(){return data.sessions.filter(s=>s.season===data.activeSeason)}function activeSession(){return data.sessions.find(s=>s.active&&s.season===data.activeSeason)||seasonSessions()[0]}function viewedLivewellSession(){const active=activeSession();if(!viewedLivewellSessionId)viewedLivewellSessionId=active?.id;return seasonSessions().find(s=>s.id===viewedLivewellSessionId)||active||seasonSessions()[0]}function openLivewell(id){viewedLivewellSessionId=id||activeSession()?.id;setPage('livewell');renderLivewell();FishAudio.play('sonar');toast(id?'Past livewell opened':'Today’s livewell opened')}function catchesForSession(id){return data.catches.filter(c=>c.sessionId===id)}function seasonCatches(){const ids=new Set(seasonSessions().map(s=>s.id));return data.catches.filter(c=>ids.has(c.sessionId))}function sessionFor(id){return data.sessions.find(s=>s.id===id)||{}}function groupCount(arr,fn){return arr.reduce((a,x)=>{const k=fn(x)||'Unknown';a[k]=(a[k]||0)+1;return a},{})}function topEntries(o,n=6){return Object.entries(o).sort((a,b)=>b[1]-a[1]).slice(0,n)}function biggest(c=seasonCatches()){return c.slice().sort((a,b)=>(+b.length||0)-(+a.length||0))[0]}function avg(c=seasonCatches()){return c.length?(c.reduce((a,x)=>a+(+x.length||0),0)/c.length).toFixed(1):0}
+function esc(s){return String(s??'').replace(/[&<>'"]/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[m]))}function toast(msg){const t=document.getElementById('toast');t.textContent=msg;t.style.display='block';setTimeout(()=>t.style.display='none',2300)}function setPage(id){activePage=id;if(data.mode!=='water')lastDockPage=id;document.querySelectorAll('.page').forEach(p=>p.classList.toggle('active',p.id===id));renderNav();FishAudio.play('button')}function setSeason(id){data.activeSeason=id;save();if(window.FishSync){FishSync.touchProfile();FishSync.scheduleSync();}toast('Season changed to '+seasonDisplayName(currentSeason()||{id}))}function currentSeason(){return data.seasons.find(s=>s.id===data.activeSeason)||data.seasons[0]}function seasonDisplayName(s){return (s?.name||s?.id||'Season')+(s?.archived?' ✓ Archived':'')}function setMode(m){if(m==='water'){lastDockPage=activePage||lastDockPage||'boathouse';activePage='boathouse'}else{activePage=lastDockPage||'boathouse'}data.mode=m;try{localStorage.setItem(KEY,JSON.stringify(data))}catch(e){} if(window.FishSync){FishSync.touchProfile();FishSync.scheduleSync();} render();FishAudio.play('sonar');toast(m==='water'?'Water Mode engaged':'Dock Mode engaged')}function seasonSessions(){return data.sessions.filter(s=>s.season===data.activeSeason)}function activeSession(){return data.sessions.find(s=>s.active&&s.season===data.activeSeason)||seasonSessions()[0]}function viewedLivewellSession(){const active=activeSession();if(!viewedLivewellSessionId)viewedLivewellSessionId=active?.id;return seasonSessions().find(s=>s.id===viewedLivewellSessionId)||active||seasonSessions()[0]}function openLivewell(id){viewedLivewellSessionId=id||activeSession()?.id;setPage('livewell');renderLivewell();FishAudio.play('sonar');toast(id?'Past livewell opened':'Today’s livewell opened')}function catchesForSession(id){return data.catches.filter(c=>c.sessionId===id&&!c.deleted)}function seasonCatches(){const ids=new Set(seasonSessions().map(s=>s.id));return data.catches.filter(c=>ids.has(c.sessionId)&&!c.deleted)}function sessionFor(id){return data.sessions.find(s=>s.id===id)||{}}function groupCount(arr,fn){return arr.reduce((a,x)=>{const k=fn(x)||'Unknown';a[k]=(a[k]||0)+1;return a},{})}function topEntries(o,n=6){return Object.entries(o).sort((a,b)=>b[1]-a[1]).slice(0,n)}function biggest(c=seasonCatches()){return c.slice().sort((a,b)=>(+b.length||0)-(+a.length||0))[0]}function avg(c=seasonCatches()){return c.length?(c.reduce((a,x)=>a+(+x.length||0),0)/c.length).toFixed(1):0}
 
 /* PHOTO ENGINE INJECTED */
 /* ============================================================
@@ -1043,7 +1143,7 @@ function toggleArchiveSeason(id){
   if(window.FishSync){FishSync.touch(s);FishSync.scheduleSync();}
   save();
 }
-function openSessionSheet(){const cs=currentSeason();if(cs?.archived&&!confirm('This season is archived. Start a trip here anyway?\n\nUsually you should start a new season first from Rig Box.'))return;document.getElementById('sheetTitle').textContent='Where are we headed?';document.getElementById('sheetSub').textContent='Trip context makes on-water logging effortless.';document.getElementById('sheetBody').innerHTML=`<div class="details"><label>Trip Title<input id="sTitle" value="Morning Mist"></label><label>Country<select id="sCountry">${data.refs.countries.map(x=>`<option ${x==='United States'?'selected':''}>${esc(x)}</option>`).join('')}</select></label><label>State / Province<input id="sState" value="PA"></label><label>Water Type<select id="sWaterType">${data.refs.waterTypes.map(x=>`<option>${esc(x)}</option>`).join('')}</select></label><label>Water<select id="sWater">${data.refs.waters.map(x=>`<option>${esc(x)}</option>`).join('')}</select></label><label>Launch / Ramp<select id="sLaunch">${data.refs.launches.map(x=>`<option>${esc(x)}</option>`).join('')}</select></label><label>Area<input id="sArea" value="Harrisburg islands"></label><label>Partner / Crew<input id="sPartners" value="Brian" list="partnerList"><datalist id="partnerList">${data.refs.partners.map(x=>`<option value="${esc(x)}"></option>`).join('')}</datalist></label><label>Boat / Method<select id="sBoat">${data.refs.boats.map(x=>`<option>${esc(x)}</option>`).join('')}</select></label><label>Fishing Method<select id="sMethod">${data.refs.methods.map(x=>`<option>${esc(x)}</option>`).join('')}</select></label><label>Technique Focus<select id="sTechnique">${data.refs.techniqueFocus.map(x=>`<option>${esc(x)}</option>`).join('')}</select></label><label>Target Species<select id="sTarget">${data.refs.species.map(x=>`<option>${esc(x)}</option>`).join('')}</select></label><label>Weather<select id="sWeather">${data.refs.weather.map(x=>`<option ${x==='Partly cloudy'?'selected':''}>${esc(x)}</option>`).join('')}</select></label><label>Water Clarity<select id="sClarity">${data.refs.clarity.map(x=>`<option>${esc(x)}</option>`).join('')}</select></label><label>Flow / Current<select id="sFlow">${data.refs.flow.map(x=>`<option ${x==='Moderate current'?'selected':''}>${esc(x)}</option>`).join('')}</select></label><label>Spawn / Seasonal Phase<select id="sSpawn">${data.refs.spawnPhase.map(x=>`<option>${esc(x)}</option>`).join('')}</select></label><label>Water Temp<input id="sTemp" type="number" value="68"></label><label>Air Temp<input id="sAir" type="number" value="74"></label><label>Sky<select id="sSky">${data.refs.sky.map(x=>`<option>${esc(x)}</option>`).join('')}</select></label><label>Moon<select id="sMoon">${data.refs.moon.map(x=>`<option>${esc(x)}</option>`).join('')}</select></label><textarea id="sNotes">A new chapter begins.</textarea></div>`;document.getElementById('sheetActions').innerHTML=`<button class="btn" onclick="closeSheet()">Cancel</button><button class="btn primary" onclick="saveSession()">Launch Trip</button>`;document.getElementById('sheet').classList.add('active')}function saveSession(){data.sessions.forEach(s=>{if(s.season===data.activeSeason)s.active=false});data.sessions.push({id:uid(),season:data.activeSeason,active:true,title:val('sTitle'),name:val('sTitle'),date:new Date().toISOString().slice(0,10),start:new Date().toTimeString().slice(0,5),end:'',country:val('sCountry'),state:val('sState')||'PA',waterType:val('sWaterType'),water:val('sWater'),launch:val('sLaunch'),area:val('sArea'),partners:val('sPartners').split(',').map(x=>x.trim()).filter(Boolean),boat:val('sBoat'),method:val('sMethod'),techniqueFocus:val('sTechnique'),weather:val('sWeather'),clarity:val('sClarity'),waterTemp:+val('sTemp')||'',airTemp:+val('sAir')||'',flow:val('sFlow'),wind:'',sky:val('sSky'),target:val('sTarget'),spawnPhase:val('sSpawn'),moon:val('sMoon'),notes:val('sNotes')});if(window.FishSync){FishSync.touch(data.sessions[data.sessions.length-1]);FishSync.scheduleSync();}viewedLivewellSessionId=activeSession()?.id;closeSheet();save();FishAudio.play('sonar');toast('The boat is in the water')}function val(id){return document.getElementById(id)?.value||''}
+function openSessionSheet(){const cs=currentSeason();if(cs?.archived&&!confirm('This season is archived. Start a trip here anyway?\n\nUsually you should start a new season first from Rig Box.'))return;document.getElementById('sheetTitle').textContent='Where are we headed?';document.getElementById('sheetSub').textContent='Trip context makes on-water logging effortless.';document.getElementById('sheetBody').innerHTML=`${tripTemplateStrip()}<div class="details"><label>Trip Title<input id="sTitle" value="Morning Mist"></label><label>Country<select id="sCountry">${data.refs.countries.map(x=>`<option ${x==='United States'?'selected':''}>${esc(x)}</option>`).join('')}</select></label><label>State / Province<input id="sState" value="PA"></label><label>Water Type<select id="sWaterType">${data.refs.waterTypes.map(x=>`<option>${esc(x)}</option>`).join('')}</select></label><label>Water<select id="sWater">${data.refs.waters.map(x=>`<option>${esc(x)}</option>`).join('')}</select></label><label>Launch / Ramp<select id="sLaunch">${data.refs.launches.map(x=>`<option>${esc(x)}</option>`).join('')}</select></label><label>Area<input id="sArea" value="Harrisburg islands"></label><label>Partner / Crew<input id="sPartners" value="Brian" list="partnerList"><datalist id="partnerList">${data.refs.partners.map(x=>`<option value="${esc(x)}"></option>`).join('')}</datalist></label><label>Boat / Method<select id="sBoat">${data.refs.boats.map(x=>`<option>${esc(x)}</option>`).join('')}</select></label><label>Fishing Method<select id="sMethod">${data.refs.methods.map(x=>`<option>${esc(x)}</option>`).join('')}</select></label><label>Technique Focus<select id="sTechnique">${data.refs.techniqueFocus.map(x=>`<option>${esc(x)}</option>`).join('')}</select></label><label>Target Species<select id="sTarget">${data.refs.species.map(x=>`<option>${esc(x)}</option>`).join('')}</select></label><label>Weather<select id="sWeather">${data.refs.weather.map(x=>`<option ${x==='Partly cloudy'?'selected':''}>${esc(x)}</option>`).join('')}</select></label><label>Water Clarity<select id="sClarity">${data.refs.clarity.map(x=>`<option>${esc(x)}</option>`).join('')}</select></label><label>Flow / Current<select id="sFlow">${data.refs.flow.map(x=>`<option ${x==='Moderate current'?'selected':''}>${esc(x)}</option>`).join('')}</select></label><label>Spawn / Seasonal Phase<select id="sSpawn">${data.refs.spawnPhase.map(x=>`<option>${esc(x)}</option>`).join('')}</select></label><label>Water Temp<input id="sTemp" type="number" value="68"></label><label>Air Temp<input id="sAir" type="number" value="74"></label><label>Sky<select id="sSky">${data.refs.sky.map(x=>`<option>${esc(x)}</option>`).join('')}</select></label><label>Moon<select id="sMoon">${data.refs.moon.map(x=>`<option>${esc(x)}</option>`).join('')}</select></label><textarea id="sNotes">A new chapter begins.</textarea></div>`;document.getElementById('sheetActions').innerHTML=`<button class="btn" onclick="closeSheet()">Cancel</button><button class="btn" onclick="saveCurrentTripAsTemplate()">📋 Save as Template</button><button class="btn primary" onclick="saveSession()">Launch Trip</button>`;document.getElementById('sheet').classList.add('active')}function saveSession(){data.sessions.forEach(s=>{if(s.season===data.activeSeason)s.active=false});data.sessions.push({id:uid(),season:data.activeSeason,active:true,title:val('sTitle'),name:val('sTitle'),date:new Date().toISOString().slice(0,10),start:new Date().toTimeString().slice(0,5),end:'',country:val('sCountry'),state:val('sState')||'PA',waterType:val('sWaterType'),water:val('sWater'),launch:val('sLaunch'),area:val('sArea'),partners:val('sPartners').split(',').map(x=>x.trim()).filter(Boolean),boat:val('sBoat'),method:val('sMethod'),techniqueFocus:val('sTechnique'),weather:val('sWeather'),clarity:val('sClarity'),waterTemp:+val('sTemp')||'',airTemp:+val('sAir')||'',flow:val('sFlow'),wind:'',sky:val('sSky'),target:val('sTarget'),spawnPhase:val('sSpawn'),moon:val('sMoon'),notes:val('sNotes')});if(window.FishSync){FishSync.touch(data.sessions[data.sessions.length-1]);FishSync.scheduleSync();}viewedLivewellSessionId=activeSession()?.id;closeSheet();save();FishAudio.play('sonar');toast('The boat is in the water')}function val(id){return document.getElementById(id)?.value||''}
 function exportTripStory(id){const s=data.sessions.find(x=>x.id===id),text=`The River Remembers\n\n${s.title||s.name}\n${s.water} • ${s.date}\n\n${storyFor(s).replace(/<[^>]+>/g,'')}`;const b=new Blob([text],{type:'text/plain'}),a=document.createElement('a');a.href=URL.createObjectURL(b);a.download='FishSlayR_The_River_Remembers.txt';a.click();URL.revokeObjectURL(a.href)}
 function exportJSON(){const b=new Blob([JSON.stringify(data,null,2)],{type:'application/json'}),a=document.createElement('a');a.href=URL.createObjectURL(b);a.download='FishSlayR_GenesisIII_Journal.json';a.click();URL.revokeObjectURL(a.href);FishAudio.play('button')}function importJSON(e){const f=e.target.files[0];if(!f)return;const r=new FileReader();r.onload=()=>{try{data=JSON.parse(r.result);normalizeRefs();try{localStorage.setItem(KEY,JSON.stringify(data))}catch(e){} render();toast('FishSlayR data imported')}catch(err){toast('Import failed')}};r.readAsText(f);e.target.value=''}async function syncFromHome(){
   // Not signed in yet → prompt for email and send a magic link.
@@ -1145,10 +1245,27 @@ function openFishCard(id){
   document.getElementById('sheetTitle').textContent='Catch Card';
   document.getElementById('sheetSub').textContent=`${s.title||s.name||'Trip'} • ${s.water||'Unknown water'}`;
   document.getElementById('sheetBody').innerHTML=`<div class="fish-detail-grid"><div class="fish-detail-hero ${speciesClass(c.species)}">${c.photoThumb?`<div class="catch-photo-full"><img id="catchPhotoFull" src="${c.photoThumb}" alt="${esc(c.species)}"></div>`:`<div class="big-fish">${fishEmoji(c.species)}</div>`}<span class="eyebrow">${isBest?'Biggest of the Trip':'FishSlayR Catch Card'}</span><h2>${esc(c.length)}"</h2><p class="story"><strong>${esc(c.species)}</strong><br>${esc(c.color||'')} ${esc(c.lure||'')} • ${esc(c.time||'--:--')}</p><div class="chips"><span class="chip gold">${ratingStars(c.rating||3)}</span><span class="chip">${esc(c.disposition||'Released')}</span><span class="chip">${esc(c.depth||'Depth n/a')}</span></div></div><div class="fish-detail-notes"><span class="eyebrow">The River Remembers</span><p>${esc(c.notes||`Caught on ${c.color||'a'} ${c.lure||'bait'} around ${c.structure||'fishy water'}.`)}</p><div class="chips"><span class="chip">🌊 ${esc(s.water||'')}</span><span class="chip">🎣 ${esc(s.method||'')}</span><span class="chip">🌤 ${esc(s.weather||'')}</span><span class="chip">📍 ${esc(c.structure||'')}</span>${c.photoLat!=null?`<button class="chip location-chip" onclick="openLocationModal('${safeJs(c.id)}')">🛰 GPS Fix</button>`:''}</div></div></div>`;
-  document.getElementById('sheetActions').innerHTML=`<button class="btn" onclick="closeSheet()">Close</button><button class="btn" onclick="editCatch('${safeJs(id)}')">Edit Catch</button><button class="btn gold" onclick="openRemember('${safeJs(c.sessionId)}')">Trip Story</button>`;
+  document.getElementById('sheetActions').innerHTML=`<button class="btn" onclick="closeSheet()">Close</button><button class="btn" onclick="editCatch('${safeJs(id)}')">Edit Catch</button><button class="btn gold" onclick="openRemember('${safeJs(c.sessionId)}')">Trip Story</button><button class="btn danger" onclick="deleteCatch('${safeJs(id)}')">Delete</button>`;
   document.getElementById('sheet').classList.add('active');
   if(c.photoThumb){const el=document.getElementById('catchPhotoFull'); if(el)showCatchPhoto(c.id,el);}
   FishAudio.play('button');
+}
+function deleteCatch(id){
+  const c=data.catches.find(x=>x.id===id); if(!c) return;
+  const label=`${c.length||''}" ${c.species||'fish'}`.trim();
+  if(!confirm(`Delete this catch (${label})?\n\nThis removes it from every device the next time you sync, and its photo will be deleted from the cloud. This can't be undone.`)) return;
+  // Soft-delete for sync: mark deleted + dirty so the tombstone propagates to
+  // Supabase (and other devices) rather than physically removing the row here,
+  // which would just get re-synced back down from the server.
+  c.deleted=true;
+  if(window.FishSync) window.FishSync.touch(c); else { c.updated_at=new Date().toISOString(); c._dirty=true; }
+  // Drop the local photo blob now; the cloud copy is removed by the Supabase
+  // delete trigger when this tombstone lands in the catches table.
+  if(typeof photoDelete==='function') photoDelete(id);
+  save();               // save() calls render(); selectors below hide deleted catches
+  closeSheet();
+  toast('Catch deleted');
+  if(window.FishSync && navigator.onLine) window.FishSync.syncNow();
 }
 function fishCardHTML(c,big){
   const isBig=big&&c.id===big.id;
@@ -1855,7 +1972,7 @@ function openCaptainSheet(){
     <button class="captain-command" onclick="closeCaptainSheet();setPage('rigbox')"><span>📖</span>Season Manager</button>
     <button class="captain-command" onclick="closeCaptainSheet();exportJSON()"><span>📤</span>Export JSON</button>
     <button class="captain-command" onclick="closeCaptainSheet();document.getElementById('fileInput').click()"><span>📥</span>Import JSON</button>
-    <button class="captain-command" onclick="closeCaptainSheet();clearData()"><span>🎣</span>Load Demo</button>
+    <button class="captain-command" onclick="closeCaptainSheet();syncFromHome()"><span>☁️</span>Cloud Sync</button>
     <button class="captain-command danger" onclick="closeCaptainSheet();clearAllTestData()"><span>🧪</span>Clear Test Data</button>`;
   document.getElementById('captainSheet').classList.add('active');
   try{FishAudio.play('button')}catch(e){}
@@ -2511,6 +2628,7 @@ var FishSlayRHooks=window.FishSlayRHooks||{};
     '<div class="glass panel span4"><h3>How FishSlayR is organized</h3><p class="muted">The relationship is simple and permanent.</p><div class="rigbox-lineage"><div class="rigbox-lineage-node"><i>☀️</i><strong>Season</strong><small class="muted">The active context</small></div><div class="rigbox-lineage-arrow">→</div><div class="rigbox-lineage-node"><i>🛶</i><strong>Trip</strong><small class="muted">A day on the water</small></div><div class="rigbox-lineage-arrow">→</div><div class="rigbox-lineage-node"><i>🐟</i><strong>Fish</strong><small class="muted">A catch in that trip</small></div></div></div>'+
     '<div class="glass panel span6"><h3>Backups & Demo Data</h3><p class="muted">Export before major changes. Imports replace the current local journal.</p><div class="rigbox-tool-grid"><div class="rigbox-tool"><strong>Backup</strong><small>Save or restore the complete FishSlayR journal as JSON.</small><div class="actions"><button class="btn" onclick="exportJSON()">Export</button><button class="btn" onclick="document.getElementById(&quot;fileInput&quot;).click()">Import</button></div></div><div class="rigbox-tool"><strong>Demo</strong><small>Reload the full sample Season for feature testing.</small><button class="btn gold" onclick="clearData()">Load Demo Data</button></div></div></div>'+
     '<div class="glass panel span6"><h3>Cloud Sync</h3>'+(window.FishAuth&&window.FishAuth.isSignedIn()?'<p class="muted">Signed in as <strong style="color:#cff4ff">'+esc(window.FishAuth.email()||'')+'</strong>. Your journal backs up and syncs across devices automatically.</p><div class="actions"><button class="btn" onclick="syncFromHome()">Sync Now</button><button class="btn danger" onclick="FishAuth.signOut()">Sign Out</button></div>':'<p class="muted">Sign in to back up your journal to the cloud and sync it across devices. We send a one-tap magic link — no password.</p><div class="actions"><button class="btn primary" onclick="syncFromHome()">Sign In for Cloud Sync</button></div>')+'</div>'+
+    '<div class="glass panel span12"><h3>Trip Templates</h3><p class="muted">Reusable trip setups. When starting a New Trip, tap a template to fill water, launch, crew, method, and conditions in one tap — then just tweak what changed. Create one by filling out a trip and tapping “Save as Template”.</p>'+(ensureTripTemplates().length?'<div class="trip-template-manager">'+ensureTripTemplates().map(function(t){return '<div class="trip-template-mcard"><strong>'+tripTemplateIcon(t)+' '+esc(t.name||'Trip')+'</strong><small>'+esc(tripTemplateSummary(t))+'</small><div class="actions"><button class="btn small danger" onclick="deleteTripTemplate(&quot;'+esc(t.id)+'&quot;)">Delete</button></div></div>'}).join('')+'</div>':'<p class="muted" style="opacity:.7">No templates yet. Start a trip, set it up how you like, and tap “Save as Template”.</p>')+'</div>'+
     '<div class="glass panel span6"><h3>App Preferences</h3><p class="muted">Choose the working view and FishAudio behavior.</p><div class="rigbox-tool-grid"><div class="rigbox-tool"><strong>Display Mode</strong><small>Dock for the full journal. Water for a focused on-water view.</small><div class="actions"><button class="btn '+(data.mode==='dock'?'primary':'')+'" onclick="setMode(&quot;dock&quot;)">Dock</button><button class="btn '+(data.mode==='water'?'primary':'')+'" onclick="setMode(&quot;water&quot;)">Water</button></div></div><div class="rigbox-tool"><strong>FishAudio</strong><small>'+(data.sound&&data.sound.enabled?'Sound is enabled.':'Sound is muted.')+'</small><div class="actions"><button class="btn" onclick="toggleSound();renderRigbox()">'+(data.sound&&data.sound.enabled?'Mute':'Enable Sound')+'</button><button class="btn" onclick="toggleAudioLab(true)">Audio Lab</button></div></div></div></div>'+
     '<details class="glass panel rigbox-library"><summary><span>Reference Library <small class="muted">Species, lures, waters, methods, conditions, and other defaults</small></span></summary><div class="rigbox-library-body"><p class="muted">These bundled choices power trip and catch forms. Export your journal before importing customized reference data.</p><div class="compact-ref">'+Object.entries(data.refs||{}).map(function(entry){return '<span class="chip">'+esc(entry[0])+': '+(Array.isArray(entry[1])?entry[1].length:0)+'</span>'}).join('')+'</div></div></details>'+
     '<div class="glass panel span12 rigbox-danger"><div class="rigbox-danger-layout"><div><h3>Factory Reset</h3><p class="muted">Permanently remove every local Season, trip, fish, preference, filter, and custom choice. Export a backup first if anything matters.</p></div><div class="actions"><button class="btn danger" onclick="clearAllTestData()">Factory Reset FishSlayR</button></div></div></div>'+
@@ -2698,6 +2816,8 @@ render();
       sound: data.sound ?? null,
       refs: data.refs ?? null,
       journal: data.journal ?? null,
+      loadouts: data.loadouts ?? null,
+      trip_templates: data.tripTemplates ?? null,
       updated_at: data._profileUpdatedAt || nowISO()
     };
     const { error } = await window.sb.from('profiles').upsert(row, { onConflict: 'user_id' });
@@ -2759,6 +2879,8 @@ render();
     if (p.journal)       data.journal = p.journal;
     if (p.active_season) data.activeSeason = p.active_season;
     if (p.mode)          data.mode = p.mode;
+    if (p.loadouts)      data.loadouts = p.loadouts;
+    if (p.trip_templates)data.tripTemplates = p.trip_templates;
   }
 
   // Pull any photos we're missing locally (has_photo on server, absent in IDB).
