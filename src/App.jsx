@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useAuth } from './lib/useAuth.js';
 import { useData } from './lib/DataContext.jsx';
 import { fishEmoji } from './lib/fishDisplay.js';
@@ -15,6 +15,7 @@ import Journal from './components/Journal.jsx';
 import Waters from './components/Waters.jsx';
 import Legends from './components/Legends.jsx';
 import RiverRemembers from './components/RiverRemembers.jsx';
+import TripCeremony from './components/TripCeremony.jsx';
 import SeasonSheet from './components/SeasonSheet.jsx';
 
 const NAV = [
@@ -31,7 +32,7 @@ const NAV = [
 export default function App() {
   const [page, setPage] = useState('boathouse');
   const auth = useAuth();
-  const { setSignedIn, runSync, activeSession, sessionFor } = useData();
+  const { data, setSignedIn, runSync, activeSession, sessionFor, update, updateProfile } = useData();
   const [pulling, setPulling] = useState(false);
   // Which catch card is open in the detail sheet (null = closed).
   const [openCatchId, setOpenCatchId] = useState(null);
@@ -45,6 +46,8 @@ export default function App() {
   const [seasonSheet, setSeasonSheet] = useState(null);
   // The session whose "River Remembers" recap is open (null = closed).
   const [remembering, setRemembering] = useState(null);
+  // The session being closed via the Trip Ceremony (null = closed).
+  const [ceremony, setCeremony] = useState(null);
   // Which trip the Livewell is showing (null = the active trip). Lets Journal
   // and Waters open a specific past trip's livewell.
   const [viewedSessionId, setViewedSessionId] = useState(null);
@@ -54,6 +57,33 @@ export default function App() {
 
   // Open the Livewell on a specific trip (or the active one when id is null).
   const openLivewellFor = (id) => { setViewedSessionId(id || null); setPage('livewell'); };
+
+  // Open the Trip Ceremony for a session (End Trip button). Falls back to the
+  // active session when no id is given.
+  const openCeremony = (id) => {
+    const s = id ? sessionFor(id) : activeSession();
+    if (s && s.id) setCeremony(s); else showToast('Start a trip first');
+  };
+
+  // Ported from finishTrip(): close the chapter — deactivate the session, stamp
+  // an end time, mark it dirty for sync, then drop into its livewell and open
+  // the River Remembers recap.
+  const finishTrip = (id) => {
+    update((prev) => ({
+      ...prev,
+      sessions: prev.sessions.map((s) =>
+        s.id === id
+          ? { ...s, active: false, end: s.end || new Date().toTimeString().slice(0, 5), updated_at: new Date().toISOString(), _dirty: true }
+          : s
+      ),
+    }));
+    const s = sessionFor(id);
+    setCeremony(null);
+    setViewedSessionId(id);
+    setPage('livewell');
+    if (s && s.id) setRemembering(s);
+    showToast('🌅 Chapter closed. The River Remembers.');
+  };
   // Lightweight toast — the original's toast(): a short message that fades.
   const [toast, setToast] = useState('');
 
@@ -76,6 +106,36 @@ export default function App() {
     return () => { cancelled = true; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [auth.ready, auth.signedIn]);
+
+  // --- Dock / Water mode (ported from setMode + renderShell's body toggle) ---
+  // Water Mode is a full-screen "on the water" view: the rail, topbar, and nav
+  // collapse (all via the .water-mode body class, whose CSS is already in
+  // app.css) and only the Boathouse orb shows. Entering water mode jumps to the
+  // Boathouse and remembers the page you were on; leaving restores it. A
+  // floating "↩ Dock Mode" button (rendered below) returns to dock.
+  const isWater = data.mode === 'water';
+  const lastDockPage = useRef('boathouse');
+  const prevMode = useRef(data.mode);
+
+  useEffect(() => {
+    document.body.classList.toggle('water-mode', isWater);
+  }, [isWater]);
+
+  useEffect(() => {
+    if (prevMode.current !== 'water' && isWater) {
+      // Entering water mode: remember where we were, force the Boathouse.
+      lastDockPage.current = page || 'boathouse';
+      setPage('boathouse');
+    } else if (prevMode.current === 'water' && !isWater) {
+      // Leaving water mode: restore the last dock page.
+      setPage(lastDockPage.current || 'boathouse');
+    }
+    prevMode.current = data.mode;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [data.mode]);
+
+  // Toggle back to dock from the floating water-return button.
+  const exitWaterMode = () => updateProfile((prev) => ({ ...prev, mode: 'dock' }));
 
   const openCatch = (id) => {
     // A real id opens its catch card. `null` comes from "Land Another" — open
@@ -121,6 +181,9 @@ export default function App() {
 
   return (
     <div className="app">
+      {/* Water Mode return button — CSS shows it only when .water-mode is on
+          the body (ported from the original's #waterReturn). */}
+      <button className="water-return" onClick={exitWaterMode}>↩ Dock Mode</button>
       {/* Ambient underwater layer behind the whole app — drifting fish
           silhouettes + rising bubbles. Ported from the original's <div
           class="world"> block. Purely decorative (pointer-events:none). */}
@@ -168,6 +231,11 @@ export default function App() {
             onRemember={() => { const s = activeSession(); if (s && s.id) setRemembering(s); else showToast('Start a trip first'); }}
             onSync={doSync}
             signedIn={auth.signedIn}
+            onOpenJournal={() => setPage('campfire')}
+            onStartSeason={() => setSeasonSheet({ mode: 'start' })}
+            onOpenCatch={(id) => setOpenCatchId(id)}
+            onEndTrip={() => openCeremony(null)}
+            lastCatchId={lastCatchId}
           />
         )}
         {page === 'livewell' && (
@@ -180,6 +248,7 @@ export default function App() {
               const s = id ? sessionFor(id) : activeSession();
               if (s && s.id) setRemembering(s); else showToast('Start a trip first');
             }}
+            onEndTrip={(id) => openCeremony(id)}
           />
         )}
         {page === 'tackle' && <TackleBox onToast={showToast} />}
@@ -199,6 +268,7 @@ export default function App() {
             onManageChapters={() => setPage('rigbox')}
             onOpenLivewell={(id) => openLivewellFor(id)}
             onRemember={(session) => setRemembering(session)}
+            onEndTrip={(id) => openCeremony(id)}
             onToast={showToast}
           />
         )}
@@ -263,6 +333,15 @@ export default function App() {
 
       {remembering && (
         <RiverRemembers session={remembering} onClose={() => setRemembering(null)} />
+      )}
+
+      {ceremony && (
+        <TripCeremony
+          session={ceremony}
+          onClose={() => setCeremony(null)}
+          onFinish={finishTrip}
+          onViewLivewell={(id) => { setCeremony(null); openLivewellFor(id); }}
+        />
       )}
 
       {swimGhost && (

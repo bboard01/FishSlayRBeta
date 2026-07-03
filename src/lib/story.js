@@ -69,3 +69,19 @@ export function tripStoryText(data, s) {
   const plain = storyFor(data, s).replace(/<[^>]+>/g, '');
   return `The River Remembers\n\n${s.title || s.name}\n${s.water} • ${s.date}\n\n${plain}`;
 }
+
+// patternText(data, seasonCatches): the Boathouse "Season Memory" paragraph —
+// the most-common species / color+lure / strongest water, as HTML. Ported 1:1
+// from the single-file app's patternText(). Returns markup (rendered via
+// dangerouslySetInnerHTML) to preserve the original's <strong> emphasis.
+export function patternText(data, seasonCatches) {
+  const c = seasonCatches;
+  if (!c.length) {
+    return 'No pattern yet. Log a few fish and River Intelligence will start turning memories into useful clues.';
+  }
+  const lure = topEntries(groupCount(c, (x) => x.lure), 1)[0]?.[0];
+  const color = topEntries(groupCount(c, (x) => x.color), 1)[0]?.[0];
+  const species = topEntries(groupCount(c, (x) => x.species), 1)[0]?.[0];
+  const water = topEntries(groupCount(c, (x) => sessionFor(data, x.sessionId).water), 1)[0]?.[0];
+  return `<strong>${esc(species)}</strong> are showing up most often on <strong>${esc(color)} ${esc(lure)}</strong>. Your strongest water right now is <strong>${esc(water)}</strong>. The river is starting to remember.`;
+}

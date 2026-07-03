@@ -23,7 +23,7 @@ import { tripCoverClass, tripCoverIcon } from '../lib/seasons.js';
 // Journal and Waters can open a specific past trip's livewell.
 const H = (html) => ({ __html: html });
 
-export default function Livewell({ viewedSessionId, onSelectSession, onOpenCatch, lastCatchId, onRemember }) {
+export default function Livewell({ viewedSessionId, onSelectSession, onOpenCatch, lastCatchId, onRemember, onEndTrip }) {
   const { data, updateProfile, activeSession, catchesForSession, seasonSessions, seasonCatches, biggest, avg } = useData();
 
   const [filter, setFilter] = useState('all');
@@ -74,6 +74,14 @@ export default function Livewell({ viewedSessionId, onSelectSession, onOpenCatch
           {isCurrent && (
             <button className="btn primary" onClick={() => onOpenCatch && onOpenCatch(null)}>
               Land Another
+            </button>
+          )}
+          <button className="btn gold" onClick={() => onRemember && onRemember(viewed.id)}>
+            The River Remembers
+          </button>
+          {viewed.active && (
+            <button className="btn end-trip-btn" onClick={() => onEndTrip && onEndTrip(viewed.id)}>
+              End Trip
             </button>
           )}
         </div>

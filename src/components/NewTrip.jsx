@@ -1,12 +1,17 @@
 import { useState } from 'react';
 import { useData, uid } from '../lib/DataContext.jsx';
+import {
+  ensureTemplates, templateFromForm, applyTemplateToForm,
+  templateIcon, templateSummary, templateName, MAX_TEMPLATES,
+} from '../lib/templates.js';
 
 // The New Trip sheet — ported from the single-file app's openSessionSheet() +
 // saveSession(). Same "Where are we headed?" framing, the same full context
 // form (title, water, crew, conditions…), the same defaults, and "Launch Trip"
-// which starts an active session in the current season. Trip Templates sync via
-// the profile and land with that port; the Save-as-Template button is present
-// but stubbed so the action row matches the original.
+// which starts an active session in the current season. Trip Templates let a
+// recurring trip's context be saved and re-applied in one tap; they sync via
+// the profile (data.tripTemplates → profiles.trip_templates), the same pattern
+// as tackle loadouts.
 
 // Field defaults, mirroring openSessionSheet().
 const DEFAULTS = {
@@ -45,8 +50,9 @@ function Select({ label, value, onChange, options }) {
 }
 
 export default function NewTrip({ onClose, onLaunched }) {
-  const { data, update, currentSeason } = useData();
+  const { data, update, updateProfile, currentSeason } = useData();
   const refs = data.refs || {};
+  const templates = ensureTemplates(data);
 
   // Seed each field with its default, falling back to the first ref option so a
   // select is never empty (matches how the original's <option> lists render).
@@ -66,6 +72,37 @@ export default function NewTrip({ onClose, onLaunched }) {
   }));
 
   const set = (key, value) => setF((prev) => ({ ...prev, [key]: value }));
+
+  // Save the current form as a reusable template (profile-synced). Names it
+  // after the trip title by default; if a template with that label exists,
+  // overwrite it so re-saving a tweaked "Morning Mist" doesn't pile up dupes.
+  const saveAsTemplate = () => {
+    const label = (window.prompt('Name this trip template', f.title || 'Trip Template') || '').trim();
+    if (!label) return;
+    updateProfile((prev) => {
+      const arr = ensureTemplates(prev).slice();
+      const existing = arr.findIndex((t) => (t.label || '').toLowerCase() === label.toLowerCase());
+      const rec = templateFromForm(existing >= 0 ? arr[existing].id : uid(), f, label);
+      if (existing >= 0) arr[existing] = rec;
+      else {
+        arr.unshift(rec);
+        if (arr.length > MAX_TEMPLATES) arr.length = MAX_TEMPLATES; // keep the newest
+      }
+      return { ...prev, tripTemplates: arr };
+    });
+  };
+
+  // Apply a saved template into the form (does not launch — the user can still
+  // tweak conditions, then hit Launch Trip).
+  const applyTemplate = (t) => setF((prev) => applyTemplateToForm(prev, t));
+
+  // Remove a template.
+  const deleteTemplate = (id) => {
+    updateProfile((prev) => ({
+      ...prev,
+      tripTemplates: ensureTemplates(prev).filter((t) => t.id !== id),
+    }));
+  };
 
   // Ported from saveSession(): deactivate other trips in this season, push the
   // new active session, mark it dirty for sync, and drop into it.
@@ -135,6 +172,39 @@ export default function NewTrip({ onClose, onLaunched }) {
         </div>
 
         <div className="sheet-body">
+          {templates.length > 0 && (
+            <div className="trip-template-picker">
+              <span className="label">Start from a template</span>
+              <div className="trip-template-row">
+                {templates.map((t, i) => (
+                  <button
+                    key={t.id}
+                    type="button"
+                    className="trip-template-chip"
+                    onClick={() => applyTemplate(t)}
+                    title="Apply this template to the form"
+                  >
+                    <span className="tt-icon">{templateIcon(t)}</span>{' '}
+                    <strong>{templateName(t, i)}</strong>
+                    <small style={{ display: 'block', color: 'var(--muted)', fontWeight: 850 }}>
+                      {templateSummary(t)}
+                    </small>
+                    <span
+                      role="button"
+                      tabIndex={0}
+                      onClick={(e) => { e.stopPropagation(); deleteTemplate(t.id); }}
+                      onKeyDown={(e) => { if (e.key === 'Enter') { e.stopPropagation(); deleteTemplate(t.id); } }}
+                      style={{ float: 'right', color: '#ffb3c0', cursor: 'pointer', fontWeight: 950 }}
+                      title="Delete template"
+                    >
+                      ✕
+                    </span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+
           <div className="details">
             <label>
               Trip Title
@@ -187,7 +257,7 @@ export default function NewTrip({ onClose, onLaunched }) {
 
         <div className="sheet-actions">
           <button className="btn" onClick={onClose}>Cancel</button>
-          <button className="btn" disabled title="Coming soon in the new build">
+          <button className="btn" onClick={saveAsTemplate} title="Save this trip's context as a reusable template">
             📋 Save as Template
           </button>
           <button className="btn primary" onClick={launch}>Launch Trip</button>

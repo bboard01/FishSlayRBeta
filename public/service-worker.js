@@ -1,21 +1,31 @@
 /* FishSlayR service worker — offline app shell caching.
    index.html is intentionally NOT pre-cached and is always network-first,
    so new deploys show up on the next online load without a version bump.
-   Bump CACHE_VERSION only when you change the icons/manifest asset list. */
-const CACHE_VERSION = 'fishslayr-v1.3.1';
+   Bump CACHE_VERSION only when you change the icons/manifest asset list.
+
+   Vite build note: the bundled JS/CSS live under ./assets/ with hashed
+   filenames that change every build, so they are NOT listed here — they are
+   cached on demand (cache-first) by the fetch handler below. Only the stable,
+   unhashed shell assets (icons + manifest) are pre-cached. */
+const CACHE_VERSION = 'fishslayr-v2.0.0';
 const ASSETS = [
   './manifest.webmanifest',
   './icon-192.png',
   './icon-512.png',
   './icon-512-maskable.png',
-  './apple-touch-icon.png',
-  'https://esm.sh/@supabase/supabase-js@2'
+  './apple-touch-icon.png'
 ];
 
 // Install: pre-cache the static app shell (no HTML), activate immediately.
+// Resilient: a single missing/updated icon shouldn't fail the whole install
+// (cache.addAll is all-or-nothing), so we add each asset independently.
 self.addEventListener('install', (event) => {
   event.waitUntil(
-    caches.open(CACHE_VERSION).then((cache) => cache.addAll(ASSETS)).then(() => self.skipWaiting())
+    caches.open(CACHE_VERSION)
+      .then((cache) => Promise.all(
+        ASSETS.map((url) => cache.add(url).catch(() => {}))
+      ))
+      .then(() => self.skipWaiting())
   );
 });
 

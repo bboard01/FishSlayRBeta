@@ -21,7 +21,7 @@ import {
 //   onOpenLivewell(sessionId): open a trip's livewell
 //   onRemember(session): open the River Remembers modal for a trip
 //   onToast(msg): toast
-export default function Journal({ onStartSeason, onManageChapters, onOpenLivewell, onRemember, onToast }) {
+export default function Journal({ onStartSeason, onManageChapters, onOpenLivewell, onRemember, onEndTrip, onToast }) {
   const { data, updateProfile } = useData();
 
   const ch = data.seasons.find((s) => s.id === data.activeSeason) || data.seasons[0] || {};
@@ -135,6 +135,9 @@ export default function Journal({ onStartSeason, onManageChapters, onOpenLivewel
               <div className="actions">
                 <button className="btn" onClick={() => onOpenLivewell && onOpenLivewell(s.id)}>Open Livewell</button>
                 <button className="btn gold" onClick={() => onRemember && onRemember(s)}>The River Remembers</button>
+                {s.active && (
+                  <button className="btn end-trip-btn" onClick={() => onEndTrip && onEndTrip(s.id)}>End Trip</button>
+                )}
               </div>
             </div>
           );
