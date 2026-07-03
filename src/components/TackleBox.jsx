@@ -7,6 +7,24 @@ import {
   loadoutName,
 } from '../lib/loadouts.js';
 import LoadoutEditor from './LoadoutEditor.jsx';
+import { tackleProfiles, barsData, countBy } from '../lib/tackle.js';
+
+// Small bar-list, ported from bars(): top-6 entries with a proportional fill.
+function Bars({ counts }) {
+  const rows = barsData(counts);
+  if (!rows.length) return <p className="muted">No data yet.</p>;
+  return (
+    <div className="bars">
+      {rows.map((r) => (
+        <div className="bar" key={r.key}>
+          <b>{r.key}</b>
+          <div className="bar-track"><div className="bar-fill" style={{ width: r.pct + '%' }} /></div>
+          <span>{r.value}</span>
+        </div>
+      ))}
+    </div>
+  );
+}
 
 // Tackle Box — the Quick Rigs / Loadouts manager, ported from renderTackle() +
 // loadoutManagerHTML(). Same wording and the same 5-slot grid with Edit/Delete
@@ -14,9 +32,11 @@ import LoadoutEditor from './LoadoutEditor.jsx';
 // stats panels that come with the River Intelligence port; this screen ships
 // the loadouts feature (create, edit, delete, sync via profile).
 export default function TackleBox({ onToast }) {
-  const { data, updateProfile } = useData();
+  const { data, updateProfile, seasonCatches } = useData();
   const outs = ensureLoadouts(data);
   const [editing, setEditing] = useState(null); // slot index being edited, or null
+  const c = seasonCatches();
+  const profiles = tackleProfiles(data, c);
 
   const remove = (i) => {
     const l = outs[i];
@@ -91,6 +111,33 @@ export default function TackleBox({ onToast }) {
             <span className="chip gold">{outs.length}/5 slots</span>
           </div>
           <div className="loadout-grid">{slots}</div>
+        </div>
+
+        <div className="glass panel span12">
+          <h3>Confidence Bait Profiles</h3>
+          <div className="profile-grid">
+            {profiles.map((p) => (
+              <div className="profile-card" key={p.lure}>
+                <span className="eyebrow">Confidence Bait</span>
+                <h4>{p.lure}</h4>
+                <strong>{p.confidence}%</strong>
+                <small>{p.count} fish • PB {p.pb}"</small>
+                <div className="chips">
+                  <span className="chip">{p.color}</span>
+                  <span className="chip green">{p.water}</span>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <div className="glass panel span6">
+          <h3>Lures</h3>
+          <Bars counts={countBy(c, (x) => x.lure)} />
+        </div>
+        <div className="glass panel span6">
+          <h3>Colors</h3>
+          <Bars counts={countBy(c, (x) => x.color)} />
         </div>
       </div>
 
