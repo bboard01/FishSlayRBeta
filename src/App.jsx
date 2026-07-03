@@ -1,10 +1,11 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useAuth } from './lib/useAuth.js';
+import { useData } from './lib/DataContext.jsx';
+import { pullFromCloud } from './lib/sync.js';
 import Boathouse from './components/Boathouse.jsx';
+import Livewell from './components/Livewell.jsx';
 import CloudButton from './components/CloudButton.jsx';
 
-// The nav items from the single-file app. Only Boathouse is ported so far;
-// the rest are placeholders we'll fill in screen by screen.
 const NAV = [
   ['boathouse', '🛶', 'Boathouse'],
   ['livewell', '🐟', 'Livewell'],
@@ -19,6 +20,27 @@ const NAV = [
 export default function App() {
   const [page, setPage] = useState('boathouse');
   const auth = useAuth();
+  const { data, replaceData } = useData();
+  const [pulling, setPulling] = useState(false);
+
+  // Offline-first: local data loads instantly. When signed in AND online, pull
+  // newer cloud records in the background and merge them into local. On a fresh
+  // device this is what brings the real journal down; otherwise it just tops up.
+  useEffect(() => {
+    if (!auth.signedIn || !navigator.onLine) return;
+    let cancelled = false;
+    setPulling(true);
+    pullFromCloud(data)
+      .then((next) => { if (next && !cancelled) replaceData(next); })
+      .catch(() => { /* offline / transient — local still works */ })
+      .finally(() => { if (!cancelled) setPulling(false); });
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [auth.signedIn]);
+
+  const openCatch = (id) => {
+    console.log('open catch', id);
+  };
 
   return (
     <div className="app">
@@ -42,18 +64,18 @@ export default function App() {
           ))}
         </nav>
         <div className="rail-bottom">
+          {pulling && <div className="muted" style={{ fontSize: '.75rem', marginBottom: 8 }}>☁️ Syncing…</div>}
           <CloudButton auth={auth} />
         </div>
       </aside>
 
       <main className="main">
         {page === 'boathouse' && <Boathouse />}
-        {page !== 'boathouse' && (
+        {page === 'livewell' && <Livewell onOpenCatch={openCatch} />}
+        {page !== 'boathouse' && page !== 'livewell' && (
           <div className="glass panel">
             <span className="eyebrow">Coming soon</span>
-            <h2 style={{ marginTop: 8 }}>
-              {NAV.find((n) => n[0] === page)?.[2]}
-            </h2>
+            <h2 style={{ marginTop: 8 }}>{NAV.find((n) => n[0] === page)?.[2]}</h2>
             <p className="muted">
               This screen is being migrated to the new build. It still lives in
               the current app while we port it over.
