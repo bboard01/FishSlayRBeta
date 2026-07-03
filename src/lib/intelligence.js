@@ -167,7 +167,7 @@ export function intelSummary(data, intelState, c) {
   return { matched, scoped, hours, tripCount, scopedTrips, skunks, success, fpt, fph, big: biggest(c) || {}, avg: avgFor(c) };
 }
 
-function sampleLabel(trips, fish) {
+export function sampleLabel(trips, fish) {
   if (trips >= 6 && fish >= 25) return ['Very High', ''];
   if (trips >= 3 && fish >= 12) return ['High', ''];
   if (trips >= 2 && fish >= 6) return ['Medium', 'medium'];

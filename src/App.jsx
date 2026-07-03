@@ -11,6 +11,7 @@ import TackleBox from './components/TackleBox.jsx';
 import RigBox from './components/RigBox.jsx';
 import RiverIntelligence from './components/RiverIntelligence.jsx';
 import Journal from './components/Journal.jsx';
+import Waters from './components/Waters.jsx';
 import RiverRemembers from './components/RiverRemembers.jsx';
 import SeasonSheet from './components/SeasonSheet.jsx';
 
@@ -154,7 +155,16 @@ export default function App() {
             onToast={showToast}
           />
         )}
-        {page !== 'boathouse' && page !== 'livewell' && page !== 'tackle' && page !== 'rigbox' && page !== 'intelligence' && page !== 'campfire' && (
+        {page === 'waters' && (
+          <Waters
+            onOpenLivewell={() => setPage('livewell')}
+            onPlanTrip={() => setNewTrip(true)}
+            onAskIntelligence={() => setPage('intelligence')}
+            onOpenStories={() => setPage('campfire')}
+            onToast={showToast}
+          />
+        )}
+        {page !== 'boathouse' && page !== 'livewell' && page !== 'tackle' && page !== 'rigbox' && page !== 'intelligence' && page !== 'campfire' && page !== 'waters' && (
           <div className="glass panel">
             <span className="eyebrow">Coming soon</span>
             <h2 style={{ marginTop: 8 }}>{NAV.find((n) => n[0] === page)?.[2]}</h2>
