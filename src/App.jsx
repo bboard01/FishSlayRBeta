@@ -1,10 +1,13 @@
 import { useState, useEffect } from 'react';
 import { useAuth } from './lib/useAuth.js';
 import { useData } from './lib/DataContext.jsx';
-import { pullFromCloud } from './lib/sync.js';
 import Boathouse from './components/Boathouse.jsx';
 import Livewell from './components/Livewell.jsx';
 import CloudButton from './components/CloudButton.jsx';
+import CatchSheet from './components/CatchSheet.jsx';
+import LogCatch from './components/LogCatch.jsx';
+import NewTrip from './components/NewTrip.jsx';
+import TackleBox from './components/TackleBox.jsx';
 
 const NAV = [
   ['boathouse', '🛶', 'Boathouse'],
@@ -20,26 +23,55 @@ const NAV = [
 export default function App() {
   const [page, setPage] = useState('boathouse');
   const auth = useAuth();
-  const { data, replaceData } = useData();
+  const { setSignedIn, runSync, activeSession } = useData();
   const [pulling, setPulling] = useState(false);
+  // Which catch card is open in the detail sheet (null = closed).
+  const [openCatchId, setOpenCatchId] = useState(null);
+  // Whether the multi-step "Land the Fish" logging flow is open.
+  const [logging, setLogging] = useState(false);
+  // Whether the New Trip sheet is open.
+  const [newTrip, setNewTrip] = useState(false);
+  // Lightweight toast — the original's toast(): a short message that fades.
+  const [toast, setToast] = useState('');
 
-  // Offline-first: local data loads instantly. When signed in AND online, pull
-  // newer cloud records in the background and merge them into local. On a fresh
-  // device this is what brings the real journal down; otherwise it just tops up.
+  const showToast = (msg) => {
+    setToast(msg);
+    setTimeout(() => setToast((t) => (t === msg ? '' : t)), 2300);
+  };
+
+  // Offline-first: local data loads instantly. When auth resolves, tell the
+  // data layer whether we're signed in — it handles first-sign-in server seeding
+  // and background push+pull without ever blocking the UI.
   useEffect(() => {
-    if (!auth.signedIn || !navigator.onLine) return;
+    if (!auth.ready) return;
     let cancelled = false;
-    setPulling(true);
-    pullFromCloud(data)
-      .then((next) => { if (next && !cancelled) replaceData(next); })
-      .catch(() => { /* offline / transient — local still works */ })
-      .finally(() => { if (!cancelled) setPulling(false); });
+    setSignedIn(auth.signedIn);
+    if (auth.signedIn && navigator.onLine) {
+      setPulling(true);
+      Promise.resolve(runSync()).finally(() => { if (!cancelled) setPulling(false); });
+    }
     return () => { cancelled = true; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [auth.signedIn]);
+  }, [auth.ready, auth.signedIn]);
 
   const openCatch = (id) => {
-    console.log('open catch', id);
+    // A real id opens its catch card. `null` comes from "Land Another" — open
+    // the logging flow. If no trip is active yet, start one first (logging
+    // attaches catches to the active session).
+    if (id) { setOpenCatchId(id); return; }
+    startLogging();
+  };
+
+  const startLogging = () => {
+    if (!activeSession()) { setNewTrip(true); showToast('Start a trip first'); return; }
+    setLogging(true);
+  };
+
+  // Called by LogCatch after a fish is saved — mirror landFish()'s tail: play
+  // the right toast and drop the user into the livewell to see the new fish.
+  const onLanded = (obj, isPB) => {
+    showToast(isPB ? '🏆 A New Legend' : '🌊 The River Remembers');
+    setPage('livewell');
   };
 
   return (
@@ -70,9 +102,16 @@ export default function App() {
       </aside>
 
       <main className="main">
-        {page === 'boathouse' && <Boathouse />}
+        {page === 'boathouse' && (
+          <Boathouse
+            onLandFish={startLogging}
+            onNewTrip={() => setNewTrip(true)}
+            onOpenLivewell={() => setPage('livewell')}
+          />
+        )}
         {page === 'livewell' && <Livewell onOpenCatch={openCatch} />}
-        {page !== 'boathouse' && page !== 'livewell' && (
+        {page === 'tackle' && <TackleBox onToast={showToast} />}
+        {page !== 'boathouse' && page !== 'livewell' && page !== 'tackle' && (
           <div className="glass panel">
             <span className="eyebrow">Coming soon</span>
             <h2 style={{ marginTop: 8 }}>{NAV.find((n) => n[0] === page)?.[2]}</h2>
@@ -83,6 +122,42 @@ export default function App() {
           </div>
         )}
       </main>
+
+      {openCatchId && (
+        <CatchSheet catchId={openCatchId} onClose={() => setOpenCatchId(null)} />
+      )}
+
+      {logging && (
+        <LogCatch onClose={() => setLogging(false)} onLanded={onLanded} onToast={showToast} />
+      )}
+
+      {newTrip && (
+        <NewTrip
+          onClose={() => setNewTrip(false)}
+          onLaunched={() => { showToast('The boat is in the water'); setPage('boathouse'); }}
+        />
+      )}
+
+      {toast && (
+        <div
+          className="toast"
+          style={{
+            position: 'fixed',
+            right: 20,
+            bottom: 20,
+            zIndex: 160,
+            border: '1px solid rgba(125,231,255,.3)',
+            background: 'rgba(3,17,30,.92)',
+            color: '#dff8ff',
+            borderRadius: 18,
+            padding: '13px 16px',
+            fontWeight: 950,
+            boxShadow: 'var(--shadow)',
+          }}
+        >
+          {toast}
+        </div>
+      )}
     </div>
   );
 }

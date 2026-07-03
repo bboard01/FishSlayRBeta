@@ -1,0 +1,537 @@
+// Reference option lists — ported verbatim from DEFAULT_REFS in the single-file
+// app's index.html. These populate the catch-flow pickers (species, lures,
+// colors, structure, etc). Kept as one source of truth so the React build shows
+// the exact same options the original does.
+export const DEFAULT_REFS = {
+  "species": [
+    "Smallmouth Bass",
+    "Largemouth Bass",
+    "Spotted Bass",
+    "Rock Bass",
+    "Striped Bass",
+    "Hybrid Striped Bass",
+    "White Bass",
+    "Brown Trout",
+    "Rainbow Trout",
+    "Brook Trout",
+    "Lake Trout",
+    "Tiger Trout",
+    "Golden Rainbow Trout",
+    "Walleye",
+    "Sauger",
+    "Saugeye",
+    "Northern Pike",
+    "Muskellunge",
+    "Tiger Muskie",
+    "Chain Pickerel",
+    "Yellow Perch",
+    "Bluegill",
+    "Pumpkinseed",
+    "Redbreast Sunfish",
+    "Green Sunfish",
+    "Black Crappie",
+    "White Crappie",
+    "Channel Catfish",
+    "Flathead Catfish",
+    "Blue Catfish",
+    "Bullhead",
+    "Common Carp",
+    "Grass Carp",
+    "Bowfin",
+    "Freshwater Drum",
+    "Longnose Gar",
+    "White Sucker",
+    "Fallfish",
+    "Cisco",
+    "Burbot"
+  ],
+  "lureCategories": [
+    "Soft Plastic",
+    "Tube",
+    "Ned Rig",
+    "Jig",
+    "Hair Jig",
+    "Marabou Jig",
+    "Spinnerbait",
+    "Buzzbait",
+    "Chatterbait",
+    "Inline Spinner",
+    "Crankbait",
+    "Squarebill",
+    "Deep Crank",
+    "Lipless Crank",
+    "Jerkbait",
+    "Topwater",
+    "Popper",
+    "Walking Bait",
+    "Prop Bait",
+    "Wake Bait",
+    "Swimbait",
+    "Glide Bait",
+    "Spoon",
+    "Blade Bait",
+    "Ice Jig",
+    "Drop Shot",
+    "Carolina Rig",
+    "Texas Rig",
+    "Live Bait",
+    "Fly",
+    "Dry Fly",
+    "Nymph",
+    "Streamer"
+  ],
+  "lures": [
+    "Tube",
+    "Ned Rig",
+    "TRD",
+    "Senko",
+    "Stick Worm",
+    "Finesse Worm",
+    "Ribbon Tail Worm",
+    "Creature Bait",
+    "Craw",
+    "Paddle Tail",
+    "Fluke",
+    "Grub",
+    "Football Jig",
+    "Finesse Jig",
+    "Swim Jig",
+    "Hair Jig",
+    "Marabou Jig",
+    "Spinnerbait",
+    "Buzzbait",
+    "Chatterbait",
+    "Inline Spinner",
+    "Squarebill",
+    "Medium Crank",
+    "Deep Crank",
+    "Lipless Crank",
+    "Jerkbait",
+    "Husky Jerk",
+    "Rapala Original Floater",
+    "Whopper Plopper",
+    "Popper",
+    "Walking Bait",
+    "Prop Bait",
+    "Wake Bait",
+    "Paddle Tail Swimbait",
+    "Glide Bait",
+    "Spoon",
+    "Williams Wabler",
+    "Little Cleo Spoon",
+    "Bucktail Jig",
+    "Blade Bait",
+    "Drop Shot",
+    "Minnow",
+    "Shiner",
+    "Leech",
+    "Nightcrawler",
+    "Crayfish",
+    "Egg Sac",
+    "Streamer",
+    "Dry Fly",
+    "Nymph"
+  ],
+  "colors": [
+    "Green Pumpkin",
+    "Green Pumpkin Purple",
+    "Green Pumpkin Orange",
+    "Watermelon",
+    "Watermelon Red",
+    "Watermelon Gold",
+    "Black/Blue",
+    "Black Neon",
+    "Black",
+    "White",
+    "Pearl",
+    "Bone",
+    "Smoke",
+    "Motor Oil",
+    "June Bug",
+    "PB&J",
+    "Okeechobee Craw",
+    "Natural Craw",
+    "Brown Craw",
+    "Red Craw",
+    "Craw",
+    "Bluegill",
+    "Shad",
+    "Sexy Shad",
+    "Ghost Minnow",
+    "Natural Shad",
+    "Alewife",
+    "Perch",
+    "Firetiger",
+    "Chartreuse",
+    "Chartreuse White",
+    "Orange",
+    "Pink",
+    "Purple",
+    "Copper",
+    "Gold",
+    "Silver",
+    "Chrome",
+    "Blue Chrome",
+    "Electric Blue",
+    "Morning Dawn",
+    "Black Silver",
+    "Brown Orange",
+    "White Red",
+    "Glow",
+    "UV Green",
+    "UV Pink"
+  ],
+  "waters": [
+    "Susquehanna River",
+    "Juniata River",
+    "Yellow Breeches",
+    "Conodoguinet Creek",
+    "Swatara Creek",
+    "Shermans Creek",
+    "Penns Creek",
+    "Spring Creek",
+    "Pine Creek",
+    "West Branch Susquehanna",
+    "Raystown Lake",
+    "Pinchot Lake",
+    "Long Pine Run Reservoir",
+    "Lake Marburg",
+    "Cowanesque Lake",
+    "Beltzville Lake",
+    "Lake Wallenpaupack",
+    "Lake Erie",
+    "Lake Ontario",
+    "Lake of the Woods (Ontario)",
+    "Lac Seul (Ontario)",
+    "Eagle Lake (Ontario)",
+    "Rainy Lake (Ontario)",
+    "St. Lawrence River",
+    "French River",
+    "Georgian Bay",
+    "Rideau Lakes",
+    "Kawartha Lakes",
+    "Lake Simcoe",
+    "Lake Nipissing",
+    "Canada Lake Trip",
+    "Local Farm Pond",
+    "Private Pond"
+  ],
+  "partners": [
+    "Solo",
+    "Brian",
+    "Dave",
+    "Dad",
+    "Pops Dave",
+    "Canada Crew",
+    "Jake",
+    "Zach",
+    "Tyler",
+    "Uncle Ron",
+    "Porter",
+    "Crew Trip"
+  ],
+  "methods": [
+    "Boat",
+    "Bass Boat",
+    "Jet Boat",
+    "Aluminum Boat",
+    "Jon Boat",
+    "Canoe",
+    "Solo Canoe",
+    "Kayak",
+    "Fishing Kayak",
+    "Bank",
+    "Dock",
+    "Pier",
+    "Wading",
+    "Float Trip",
+    "Ice Fishing",
+    "Float Tube",
+    "Belly Boat",
+    "Guided Trip"
+  ],
+  "structure": [
+    "Current seam",
+    "Eddy",
+    "Rock ledge",
+    "Boulder",
+    "Chunk rock",
+    "Gravel bar",
+    "Shoal",
+    "Riffle",
+    "Pool",
+    "Dropoff",
+    "Point",
+    "Flat",
+    "Island point",
+    "Creek mouth",
+    "Wing dam",
+    "Dam tailrace",
+    "Bridge piling",
+    "Riprap",
+    "Grass bed",
+    "Milfoil",
+    "Hydrilla",
+    "Pads",
+    "Laydown",
+    "Log jam",
+    "Standing timber",
+    "Brush pile",
+    "Dock",
+    "Undercut bank",
+    "Sand flat",
+    "Mud bottom",
+    "Deep basin",
+    "Reef",
+    "Weed edge"
+  ],
+  "weather": [
+    "Bluebird",
+    "Sunny",
+    "Partly cloudy",
+    "Overcast",
+    "Light rain",
+    "Steady rain",
+    "Thunderstorm",
+    "Fog",
+    "Mist",
+    "Snow",
+    "Windy",
+    "Calm",
+    "Cold front",
+    "Warm front",
+    "Post-front",
+    "Pre-front",
+    "Stable weather",
+    "Changing weather"
+  ],
+  "clarity": [
+    "Crystal clear",
+    "Clear",
+    "Gin clear",
+    "Light stain",
+    "Moderate stain",
+    "Stained",
+    "Muddy",
+    "Chocolate milk"
+  ],
+  "flow": [
+    "Still",
+    "Very slow",
+    "Slow",
+    "Moderate current",
+    "Fast current",
+    "Heavy current",
+    "Flood stage",
+    "Low summer flow",
+    "Rising water",
+    "Falling water",
+    "Normal pool",
+    "Eddy water",
+    "Current seam",
+    "Wind-blown bank"
+  ],
+  "presentation": [
+    "Deadstick",
+    "Drag",
+    "Hop",
+    "Slow roll",
+    "Burn",
+    "Twitch",
+    "Jerk pause",
+    "Walk the dog",
+    "Pop",
+    "Lift drop",
+    "Vertical jig",
+    "Swim",
+    "Drift",
+    "Pendulum",
+    "Skip",
+    "Flip",
+    "Pitch",
+    "Punch",
+    "Yo-yo",
+    "Steady retrieve",
+    "Stop and go",
+    "Bottom bounce",
+    "Troll"
+  ],
+  "depth": [
+    "Surface",
+    "1 ft",
+    "2 ft",
+    "3 ft",
+    "4 ft",
+    "5 ft",
+    "6-8 ft",
+    "9-12 ft",
+    "13-20 ft",
+    "20-40 ft",
+    "40+ ft",
+    "Bottom contact",
+    "Suspended"
+  ],
+  "sky": [
+    "High sun",
+    "Low light",
+    "Sunrise",
+    "Morning fog",
+    "Midday bright",
+    "Evening shade",
+    "Golden hour",
+    "Night",
+    "Moonlit",
+    "Cloud ceiling low"
+  ],
+  "disposition": [
+    "Released",
+    "Kept",
+    "Tournament Livewell",
+    "Lost at boat",
+    "Missed strike"
+  ],
+  "spawnPhase": [
+    "Pre-spawn",
+    "Spawn",
+    "Post-spawn",
+    "Summer pattern",
+    "Fall feed",
+    "Winter pattern",
+    "Ice season"
+  ],
+  "moon": [
+    "New moon",
+    "Waxing crescent",
+    "First quarter",
+    "Waxing gibbous",
+    "Full moon",
+    "Waning gibbous",
+    "Last quarter",
+    "Waning crescent"
+  ],
+  "countries": [
+    "United States",
+    "Canada"
+  ],
+  "waterTypes": [
+    "River",
+    "Creek",
+    "Stream",
+    "Lake",
+    "Reservoir",
+    "Pond",
+    "Great Lake",
+    "Canadian Shield Lake",
+    "Tailrace"
+  ],
+  "launches": [
+    "Unknown / Not Logged",
+    "Home Ramp",
+    "Island Camp Dock",
+    "Public Boat Ramp",
+    "Canoe Launch",
+    "Bank Access",
+    "Camp Dock",
+    "Marina",
+    "Guide Launch"
+  ],
+  "boats": [
+    "Unspecified",
+    "Aluminum Boat",
+    "Bass Boat",
+    "Jet Boat",
+    "Jon Boat",
+    "Canoe",
+    "Solo Canoe",
+    "Fishing Kayak",
+    "Pontoon",
+    "Guide Boat",
+    "Bank / No Boat"
+  ],
+  "techniqueFocus": [
+    "Mixed Bag",
+    "Finesse",
+    "Power Fishing",
+    "Jigging",
+    "Trolling",
+    "Casting Shoreline",
+    "Drifting",
+    "Vertical Jigging",
+    "Topwater",
+    "Deep Water",
+    "Current Seams",
+    "Weed Edges"
+  ],
+  "timeWindows": [
+    "Pre-dawn",
+    "Sunrise",
+    "Morning",
+    "Midday",
+    "Afternoon",
+    "Golden Hour",
+    "Evening",
+    "Night"
+  ],
+  "photoTags": [
+    "Hero Fish",
+    "Crew Photo",
+    "Release Shot",
+    "Boat Shot",
+    "Scenery",
+    "Lure Shot",
+    "Measure Board",
+    "Camp Photo"
+  ]
+};;
+
+// Merge DEFAULT_REFS into a data object's refs, de-duping — ported from
+// normalizeRefs(). Offline-first: guarantees the pickers always have options
+// even on a brand-new device before any cloud pull.
+export function normalizeRefs(data) {
+  const refs = { ...(data.refs || {}) };
+  for (const [k, vals] of Object.entries(DEFAULT_REFS)) {
+    const existing = Array.isArray(refs[k]) ? refs[k] : [];
+    refs[k] = Array.from(new Set([...existing, ...vals]));
+  }
+  return refs;
+}
+
+export function uniq(list) {
+  return Array.from(new Set((list || []).filter(Boolean)));
+}
+
+// Put preferred values first, then the rest — ported from prioritizeOptions().
+export function prioritizeOptions(all, preferred) {
+  const u = uniq(all);
+  const p = uniq(preferred).filter((x) => u.includes(x));
+  return [...p, ...u.filter((x) => !p.includes(x))];
+}
+
+// Quick-pick shortlists, session-aware — ported from popularSpecies/Lures/Colors.
+export function popularSpecies(refs, session = {}) {
+  const target = String(session.target || '').split(/[\/,|]+/).map((x) => x.trim()).filter(Boolean);
+  const base = ['Smallmouth Bass', 'Largemouth Bass', 'Walleye', 'Northern Pike', 'Lake Trout', 'Yellow Perch', 'Rock Bass', 'Channel Catfish'];
+  return prioritizeOptions(refs.species || [], [...target, ...base]).slice(0, 8);
+}
+
+export function popularLures(refs, session = {}) {
+  const lake = String(session.water || '').toLowerCase().includes('lake') || String(session.state || '').toLowerCase().includes('ontario');
+  const base = lake
+    ? ['Jig', 'Leech', 'Minnow', 'Husky Jerk', 'Spoon', 'Williams Wabler', 'Little Cleo Spoon', 'Bucktail Jig']
+    : ['Tube', 'Ned Rig', 'Spinnerbait', 'Squarebill', 'Whopper Plopper', 'Jerkbait', 'Finesse Jig', 'Craw'];
+  return prioritizeOptions(refs.lures || [], base).slice(0, 8);
+}
+
+export function popularColors(refs, session = {}) {
+  const lake = String(session.water || '').toLowerCase().includes('lake') || String(session.state || '').toLowerCase().includes('ontario');
+  const base = lake
+    ? ['Gold', 'Chartreuse', 'Glow', 'Silver', 'Firetiger', 'Perch', 'Natural Shad', 'Orange']
+    : ['Green Pumpkin', 'Craw', 'Black/Blue', 'White', 'Chartreuse', 'Watermelon Red', 'Natural Shad', 'Bone'];
+  return prioritizeOptions(refs.colors || [], base).slice(0, 8);
+}
+
+// Inches formatter for the length step — ported from formatInches().
+export function formatInches(v) {
+  const n = Number(v) || 0;
+  return n.toFixed(2).replace(/\.00$/, '').replace(/0$/, '') + '″';
+}
