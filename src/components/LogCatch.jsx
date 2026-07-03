@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useData, uid } from '../lib/DataContext.jsx';
-import { photoPut, processCatchPhoto, getLiveLocation } from '../lib/photos.js';
+import { photoPut, photoDelete, processCatchPhoto, getLiveLocation } from '../lib/photos.js';
 import {
   uniq,
   popularSpecies,
@@ -36,26 +36,32 @@ function SelectOptions({ list, current }) {
   ));
 }
 
-export default function LogCatch({ onClose, onLanded, onToast }) {
+export default function LogCatch({ onClose, onLanded, onToast, editCatch }) {
   const { data, activeSession, seasonCatches, biggest, update, updateProfile } = useData();
   const refs = data.refs || {};
   const session = activeSession();
+  const isEdit = !!editCatch;
 
-  // The working draft — initialised exactly like openCatchSheet().
-  const [draft, setDraft] = useState(() => ({
-    sessionId: session?.id,
-    species: refs.species?.[0],
-    length: 16,
-    category: refs.lureCategories?.[0],
-    lure: refs.lures?.[0],
-    color: refs.colors?.[0],
-    structure: refs.structure?.[0],
-    presentation: refs.presentation?.[0],
-    depth: refs.depth?.[0],
-    disposition: refs.disposition?.[0],
-    time: new Date().toTimeString().slice(0, 5),
-    notes: '',
-  }));
+  // The working draft. New catches start from the openCatchSheet() defaults;
+  // edits start as a copy of the existing catch (editCatch({...c})).
+  const [draft, setDraft] = useState(() =>
+    isEdit
+      ? { ...editCatch }
+      : {
+          sessionId: session?.id,
+          species: refs.species?.[0],
+          length: 16,
+          category: refs.lureCategories?.[0],
+          lure: refs.lures?.[0],
+          color: refs.colors?.[0],
+          structure: refs.structure?.[0],
+          presentation: refs.presentation?.[0],
+          depth: refs.depth?.[0],
+          disposition: refs.disposition?.[0],
+          time: new Date().toTimeString().slice(0, 5),
+          notes: '',
+        }
+  );
   const [step, setStep] = useState(0);
   const [photoStatus, setPhotoStatus] = useState('');
 
@@ -125,6 +131,7 @@ export default function LogCatch({ onClose, onLanded, onToast }) {
       const n = { ...d };
       delete n._photoDispBlob; delete n.photoThumb; delete n.photoMeta;
       delete n.photoLat; delete n.photoLon; delete n.photoGeoSource; delete n._photoDateNote;
+      n._photoRemoved = true; // signal save to delete any stored blob on edit
       return n;
     });
     setPhotoStatus('');
@@ -135,16 +142,20 @@ export default function LogCatch({ onClose, onLanded, onToast }) {
     set('length', Math.round(v * 4) / 4);
   };
 
-  // Ported from landFish(): builds the catch object, appends it, marks it dirty
-  // for push sync, and closes. New-personal-best detection drives the toast copy.
+  // Ported from landFish(): builds the catch object and saves it — a new catch
+  // is appended, an edit replaces the existing record by id. Photo handling
+  // mirrors the original (carry new photo, delete on removal, otherwise preserve
+  // the prior photo untouched). New personal bests only count for new catches.
   const landFish = () => {
+    const existing = isEdit ? draft.id : null;
     const s = session;
-    if (!s) return; // "Start a trip first" — New Trip flow isn't ported yet
+    // A new catch needs an active trip; an edit keeps its own sessionId.
+    if (!existing && !s) return;
 
     const prevBig = biggest(seasonCatches())?.length || 0;
     const obj = {
-      id: uid(),
-      sessionId: draft.sessionId || s.id,
+      id: existing || uid(),
+      sessionId: draft.sessionId || s?.id,
       species: draft.species,
       length: +draft.length || 0,
       weight: +draft.weight || 0,
@@ -160,12 +171,13 @@ export default function LogCatch({ onClose, onLanded, onToast }) {
       photoTag: draft.photoTag || '',
       notes: draft.notes || '',
       updated_at: new Date().toISOString(),
-      _dirty: true, // so push sync sends it when that port lands
+      _dirty: true,
     };
 
-    // Photo: carry the thumbnail + geo on the object; write the full-res display
-    // blob to IndexedDB under the final catch id, and flag it dirty so sync
-    // uploads it to Supabase Storage. Ported from landFish().
+    // Photo handling, ported from landFish():
+    // - new/changed photo: carry thumb+geo, write the display blob, flag dirty
+    // - removed on edit: clear the flag and delete the stored blob
+    // - untouched on edit: preserve the previously-saved photo fields
     if (draft.photoThumb) {
       obj.photoThumb = draft.photoThumb;
       obj.hasPhoto = true;
@@ -177,14 +189,37 @@ export default function LogCatch({ onClose, onLanded, onToast }) {
         obj.photoGeoSource = draft.photoGeoSource || '';
       }
       if (draft._photoDispBlob) photoPut(obj.id, draft._photoDispBlob);
+    } else if (existing && draft._photoRemoved) {
+      obj.hasPhoto = false;
+      photoDelete(obj.id);
+    } else if (existing) {
+      const prev = data.catches.find((x) => x.id === existing) || {};
+      if (prev.photoThumb) {
+        obj.photoThumb = prev.photoThumb;
+        obj.hasPhoto = true;
+        obj.photoMeta = prev.photoMeta;
+        obj.photoLat = prev.photoLat;
+        obj.photoLon = prev.photoLon;
+        obj.photoGeoSource = prev.photoGeoSource;
+      }
     }
-    const isPB = (+obj.length || 0) > prevBig;
 
-    update((prev) => ({ ...prev, catches: [...prev.catches, obj] }));
+    const isPB = !existing && (+obj.length || 0) > prevBig;
+
+    update((prev) => ({
+      ...prev,
+      catches: existing
+        ? prev.catches.map((x) => (x.id === existing ? obj : x))
+        : [...prev.catches, obj],
+    }));
     onClose();
-    // "🏆 A New Legend" / "🌊 The River Remembers" — jump to the livewell to see
-    // the fish land, mirroring the original.
-    if (onLanded) onLanded(obj, isPB);
+    // On a new catch, jump to the livewell with the PB/regular toast. On an
+    // edit, just confirm the save without moving the user.
+    if (isEdit) {
+      if (onToast) onToast('Catch updated');
+    } else if (onLanded) {
+      onLanded(obj, isPB);
+    }
   };
 
   const next = () => (step === STEP_COUNT - 1 ? landFish() : setStep(step + 1));
@@ -199,7 +234,7 @@ export default function LogCatch({ onClose, onLanded, onToast }) {
       <div className="sheet" onClick={(e) => e.stopPropagation()}>
         <div className="sheet-head">
           <div>
-            <h2>Land the Fish</h2>
+            <h2>{isEdit ? 'Edit Catch' : 'Land the Fish'}</h2>
             <div className="muted">{sub}</div>
           </div>
           <button className="btn small" onClick={onClose}>Close</button>
@@ -449,7 +484,7 @@ export default function LogCatch({ onClose, onLanded, onToast }) {
             Step {step + 1} of {STEP_COUNT}
           </div>
           <button className="btn primary" onClick={next}>
-            {step === STEP_COUNT - 1 ? 'LAND IT' : 'Continue'}
+            {step === STEP_COUNT - 1 ? (isEdit ? 'SAVE' : 'LAND IT') : 'Continue'}
           </button>
         </div>
       </div>

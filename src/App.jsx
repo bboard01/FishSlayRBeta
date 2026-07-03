@@ -29,6 +29,8 @@ export default function App() {
   const [openCatchId, setOpenCatchId] = useState(null);
   // Whether the multi-step "Land the Fish" logging flow is open.
   const [logging, setLogging] = useState(false);
+  // The catch being edited (opens LogCatch pre-filled), or null.
+  const [editingCatch, setEditingCatch] = useState(null);
   // Whether the New Trip sheet is open.
   const [newTrip, setNewTrip] = useState(false);
   // Lightweight toast — the original's toast(): a short message that fades.
@@ -136,11 +138,23 @@ export default function App() {
       </main>
 
       {openCatchId && (
-        <CatchSheet catchId={openCatchId} onClose={() => setOpenCatchId(null)} />
+        <CatchSheet
+          catchId={openCatchId}
+          onClose={() => setOpenCatchId(null)}
+          onEdit={(c) => { setOpenCatchId(null); setEditingCatch(c); }}
+        />
       )}
 
       {logging && (
         <LogCatch onClose={() => setLogging(false)} onLanded={onLanded} onToast={showToast} />
+      )}
+
+      {editingCatch && (
+        <LogCatch
+          editCatch={editingCatch}
+          onClose={() => setEditingCatch(null)}
+          onToast={showToast}
+        />
       )}
 
       {newTrip && (
