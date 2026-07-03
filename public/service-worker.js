@@ -7,7 +7,7 @@
    filenames that change every build, so they are NOT listed here — they are
    cached on demand (cache-first) by the fetch handler below. Only the stable,
    unhashed shell assets (icons + manifest) are pre-cached. */
-const CACHE_VERSION = 'fishslayr-v2.0.0';
+const CACHE_VERSION = 'fishslayr-v2.0.1';
 const ASSETS = [
   './manifest.webmanifest',
   './icon-192.png',
