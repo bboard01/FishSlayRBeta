@@ -8,6 +8,8 @@ import CatchSheet from './components/CatchSheet.jsx';
 import LogCatch from './components/LogCatch.jsx';
 import NewTrip from './components/NewTrip.jsx';
 import TackleBox from './components/TackleBox.jsx';
+import RigBox from './components/RigBox.jsx';
+import SeasonSheet from './components/SeasonSheet.jsx';
 
 const NAV = [
   ['boathouse', '🛶', 'Boathouse'],
@@ -33,6 +35,8 @@ export default function App() {
   const [editingCatch, setEditingCatch] = useState(null);
   // Whether the New Trip sheet is open.
   const [newTrip, setNewTrip] = useState(false);
+  // Season sheet: null, or { mode:'start' } / { mode:'rename', season }.
+  const [seasonSheet, setSeasonSheet] = useState(null);
   // Lightweight toast — the original's toast(): a short message that fades.
   const [toast, setToast] = useState('');
 
@@ -125,7 +129,16 @@ export default function App() {
         )}
         {page === 'livewell' && <Livewell onOpenCatch={openCatch} />}
         {page === 'tackle' && <TackleBox onToast={showToast} />}
-        {page !== 'boathouse' && page !== 'livewell' && page !== 'tackle' && (
+        {page === 'rigbox' && (
+          <RigBox
+            onStartSeason={() => setSeasonSheet({ mode: 'start' })}
+            onRenameSeason={(season) => setSeasonSheet({ mode: 'rename', season })}
+            onStartTrip={() => setNewTrip(true)}
+            onOpenLivewell={() => setPage('livewell')}
+            onToast={showToast}
+          />
+        )}
+        {page !== 'boathouse' && page !== 'livewell' && page !== 'tackle' && page !== 'rigbox' && (
           <div className="glass panel">
             <span className="eyebrow">Coming soon</span>
             <h2 style={{ marginTop: 8 }}>{NAV.find((n) => n[0] === page)?.[2]}</h2>
@@ -161,6 +174,15 @@ export default function App() {
         <NewTrip
           onClose={() => setNewTrip(false)}
           onLaunched={() => { showToast('The boat is in the water'); setPage('boathouse'); }}
+        />
+      )}
+
+      {seasonSheet && (
+        <SeasonSheet
+          mode={seasonSheet.mode}
+          season={seasonSheet.season}
+          onClose={() => setSeasonSheet(null)}
+          onDone={showToast}
         />
       )}
 
