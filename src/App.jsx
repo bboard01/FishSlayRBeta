@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useAuth } from './lib/useAuth.js';
 import { useData } from './lib/DataContext.jsx';
+import { fishEmoji } from './lib/fishDisplay.js';
 import Boathouse from './components/Boathouse.jsx';
 import Livewell from './components/Livewell.jsx';
 import CloudButton from './components/CloudButton.jsx';
@@ -30,7 +31,7 @@ const NAV = [
 export default function App() {
   const [page, setPage] = useState('boathouse');
   const auth = useAuth();
-  const { setSignedIn, runSync, activeSession } = useData();
+  const { setSignedIn, runSync, activeSession, sessionFor } = useData();
   const [pulling, setPulling] = useState(false);
   // Which catch card is open in the detail sheet (null = closed).
   const [openCatchId, setOpenCatchId] = useState(null);
@@ -47,6 +48,9 @@ export default function App() {
   // Which trip the Livewell is showing (null = the active trip). Lets Journal
   // and Waters open a specific past trip's livewell.
   const [viewedSessionId, setViewedSessionId] = useState(null);
+  // The just-landed catch id — drives the Living Livewell's drop-in animation
+  // and the tank's splash pulse. Cleared shortly after so it only plays once.
+  const [lastCatchId, setLastCatchId] = useState(null);
 
   // Open the Livewell on a specific trip (or the active one when id is null).
   const openLivewellFor = (id) => { setViewedSessionId(id || null); setPage('livewell'); };
@@ -96,16 +100,40 @@ export default function App() {
     showToast(ok ? '☁️ Synced' : 'Sync failed');
   };
 
+  // A landed fish emoji that arcs across the screen — ported from landedSwim().
+  const [swimGhost, setSwimGhost] = useState(null);
+
   // Called by LogCatch after a fish is saved — mirror landFish()'s tail: play
-  // the right toast and drop the user into the livewell to see the new fish.
+  // the right toast, fling the swim-ghost, mark the new catch so the Living
+  // Livewell drops it in with a splash, and drop the user into the livewell.
   const onLanded = (obj, isPB) => {
     showToast(isPB ? '🏆 A New Legend' : '🌊 The River Remembers');
     setViewedSessionId(null); // show the active trip so the new fish appears
+    setLastCatchId(obj.id);
     setPage('livewell');
+    // swim-ghost: a single emoji arc, removed after the animation (~1.3s).
+    const ghost = { id: obj.id + ':' + Date.now(), emoji: fishEmoji(obj.species) };
+    setSwimGhost(ghost);
+    setTimeout(() => setSwimGhost((g) => (g && g.id === ghost.id ? null : g)), 1300);
+    // Let the drop-in / splash play once, then clear so it doesn't re-fire.
+    setTimeout(() => setLastCatchId((id) => (id === obj.id ? null : id)), 1400);
   };
 
   return (
     <div className="app">
+      {/* Ambient underwater layer behind the whole app — drifting fish
+          silhouettes + rising bubbles. Ported from the original's <div
+          class="world"> block. Purely decorative (pointer-events:none). */}
+      <div className="world">
+        <div className="fish-sil one" />
+        <div className="fish-sil two" />
+        <i className="bubble" />
+        <i className="bubble" />
+        <i className="bubble" />
+        <i className="bubble" />
+        <i className="bubble" />
+      </div>
+
       <aside className="rail">
         <div className="logo">
           <div className="mark" />
@@ -147,6 +175,11 @@ export default function App() {
             viewedSessionId={viewedSessionId}
             onSelectSession={(id) => setViewedSessionId(id)}
             onOpenCatch={openCatch}
+            lastCatchId={lastCatchId}
+            onRemember={(id) => {
+              const s = id ? sessionFor(id) : activeSession();
+              if (s && s.id) setRemembering(s); else showToast('Start a trip first');
+            }}
           />
         )}
         {page === 'tackle' && <TackleBox onToast={showToast} />}
@@ -230,6 +263,10 @@ export default function App() {
 
       {remembering && (
         <RiverRemembers session={remembering} onClose={() => setRemembering(null)} />
+      )}
+
+      {swimGhost && (
+        <div className="swim-ghost" key={swimGhost.id}>{swimGhost.emoji}</div>
       )}
 
       {toast && (

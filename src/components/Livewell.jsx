@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { useData } from '../lib/DataContext.jsx';
 import { esc } from '../lib/fishDisplay.js';
 import FishCard from './FishCard.jsx';
+import LivingLivewell from './LivingLivewell.jsx';
 import {
   filterLivewellCatches, livewellFilterOptions, timelineBuckets,
   tripPatternText, tripStats, firstSpeciesCatch, topColorOf,
@@ -22,7 +23,7 @@ import { tripCoverClass, tripCoverIcon } from '../lib/seasons.js';
 // Journal and Waters can open a specific past trip's livewell.
 const H = (html) => ({ __html: html });
 
-export default function Livewell({ viewedSessionId, onSelectSession, onOpenCatch }) {
+export default function Livewell({ viewedSessionId, onSelectSession, onOpenCatch, lastCatchId, onRemember }) {
   const { data, updateProfile, activeSession, catchesForSession, seasonSessions, seasonCatches, biggest, avg } = useData();
 
   const [filter, setFilter] = useState('all');
@@ -43,7 +44,6 @@ export default function Livewell({ viewedSessionId, onSelectSession, onOpenCatch
   // The persisted view mode; default to the memory wall.
   const view = data.livewellView === 'tank' ? 'tank' : 'wall';
   const setView = (v) => {
-    if (v === 'tank') return; // Phase B — not yet available
     updateProfile((prev) => ({ ...prev, livewellView: v }));
   };
 
@@ -104,13 +104,27 @@ export default function Livewell({ viewedSessionId, onSelectSession, onOpenCatch
           <button
             className={`view-toggle-btn ${view === 'tank' ? 'active' : ''}`}
             onClick={() => setView('tank')}
-            disabled
-            title="Living Livewell — coming in the next update"
+            title="Living Livewell — watch your catch swim"
           >
             🐟 Living Livewell
           </button>
         </div>
 
+        {view === 'tank' ? (
+          /* Living Livewell — the animated tank. Filters don't map to swimming
+             fish, so the filter strip is hidden here (matches the original). */
+          <LivingLivewell
+            catches={catches}
+            session={viewed}
+            biggest={biggest}
+            topLure={stats.topLure}
+            newFishId={lastCatchId}
+            onOpenCatch={(id) => onOpenCatch && onOpenCatch(id)}
+            onLandFish={() => onOpenCatch && onOpenCatch(null)}
+            onTripStory={(id) => onRemember && onRemember(id)}
+          />
+        ) : (
+        <>
         {/* Filter/sort bar (bound to the wall) */}
         <div className="filter-strip">
           {filterOptions.map(([id, label]) => (
@@ -154,6 +168,8 @@ export default function Livewell({ viewedSessionId, onSelectSession, onOpenCatch
             </div>
           )}
         </div>
+        </>
+        )}
       </div>
 
       {/* Catch timeline */}
