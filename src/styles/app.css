@@ -602,3 +602,13 @@ body.water-mode[data-active-page="livewell"] .main{display:block!important;paddi
 .rigbox-danger-layout p{margin:4px 0 0;max-width:70ch}
 @media(max-width:900px){.rigbox-hero-layout{grid-template-columns:1fr}.rigbox-tool-grid{grid-template-columns:1fr}}
 @media(max-width:760px){.rigbox-hero-v1{min-height:auto;padding:16px!important}.rigbox-title{font-size:3.2rem}.rigbox-mini-stats{grid-template-columns:repeat(3,1fr)}.rigbox-section-head,.rigbox-danger-layout{display:block}.rigbox-section-head .actions,.rigbox-danger-layout .actions{margin-top:12px}.rigbox-season-list{grid-template-columns:1fr}.rigbox-lineage{grid-template-columns:1fr}.rigbox-lineage-arrow{transform:rotate(90deg);text-align:center}.rigbox-tool-grid{grid-template-columns:1fr}.rigbox-library>summary{padding:12px 14px}.rigbox-library-body{padding:0 14px 14px}}
+
+/* ============================================================
+   Livewell view toggle (Memory Wall / Living Livewell).
+   Additive segmented control — matches the filter-chip aesthetic.
+   ============================================================ */
+.livewell-view-toggle{display:inline-flex;gap:4px;padding:4px;margin:4px 0 12px;border:1px solid rgba(125,231,255,.20);background:rgba(2,15,27,.45);border-radius:16px}
+.view-toggle-btn{border:1px solid transparent;background:transparent;color:#b9f0ff;border-radius:12px;padding:8px 14px;font-weight:1000;font-size:.82rem;cursor:pointer;transition:.18s;white-space:nowrap}
+.view-toggle-btn:hover:not(:disabled){background:rgba(125,231,255,.08)}
+.view-toggle-btn.active{background:linear-gradient(145deg,rgba(125,231,255,.22),rgba(120,243,189,.12));border-color:rgba(125,231,255,.40);color:#eafcff;box-shadow:0 0 18px rgba(125,231,255,.14)}
+.view-toggle-btn:disabled{opacity:.5;cursor:not-allowed}

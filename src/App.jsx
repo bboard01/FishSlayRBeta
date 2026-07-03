@@ -44,6 +44,12 @@ export default function App() {
   const [seasonSheet, setSeasonSheet] = useState(null);
   // The session whose "River Remembers" recap is open (null = closed).
   const [remembering, setRemembering] = useState(null);
+  // Which trip the Livewell is showing (null = the active trip). Lets Journal
+  // and Waters open a specific past trip's livewell.
+  const [viewedSessionId, setViewedSessionId] = useState(null);
+
+  // Open the Livewell on a specific trip (or the active one when id is null).
+  const openLivewellFor = (id) => { setViewedSessionId(id || null); setPage('livewell'); };
   // Lightweight toast — the original's toast(): a short message that fades.
   const [toast, setToast] = useState('');
 
@@ -94,6 +100,7 @@ export default function App() {
   // the right toast and drop the user into the livewell to see the new fish.
   const onLanded = (obj, isPB) => {
     showToast(isPB ? '🏆 A New Legend' : '🌊 The River Remembers');
+    setViewedSessionId(null); // show the active trip so the new fish appears
     setPage('livewell');
   };
 
@@ -129,13 +136,19 @@ export default function App() {
           <Boathouse
             onLandFish={startLogging}
             onNewTrip={() => setNewTrip(true)}
-            onOpenLivewell={() => setPage('livewell')}
+            onOpenLivewell={() => openLivewellFor(null)}
             onRemember={() => { const s = activeSession(); if (s && s.id) setRemembering(s); else showToast('Start a trip first'); }}
             onSync={doSync}
             signedIn={auth.signedIn}
           />
         )}
-        {page === 'livewell' && <Livewell onOpenCatch={openCatch} />}
+        {page === 'livewell' && (
+          <Livewell
+            viewedSessionId={viewedSessionId}
+            onSelectSession={(id) => setViewedSessionId(id)}
+            onOpenCatch={openCatch}
+          />
+        )}
         {page === 'tackle' && <TackleBox onToast={showToast} />}
         {page === 'rigbox' && (
           <RigBox
@@ -151,14 +164,14 @@ export default function App() {
           <Journal
             onStartSeason={() => setSeasonSheet({ mode: 'start' })}
             onManageChapters={() => setPage('rigbox')}
-            onOpenLivewell={() => setPage('livewell')}
+            onOpenLivewell={(id) => openLivewellFor(id)}
             onRemember={(session) => setRemembering(session)}
             onToast={showToast}
           />
         )}
         {page === 'waters' && (
           <Waters
-            onOpenLivewell={() => setPage('livewell')}
+            onOpenLivewell={(id) => openLivewellFor(id)}
             onPlanTrip={() => setNewTrip(true)}
             onAskIntelligence={() => setPage('intelligence')}
             onOpenStories={() => setPage('campfire')}
