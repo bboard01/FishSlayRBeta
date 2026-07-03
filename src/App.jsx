@@ -9,6 +9,9 @@ import LogCatch from './components/LogCatch.jsx';
 import NewTrip from './components/NewTrip.jsx';
 import TackleBox from './components/TackleBox.jsx';
 import RigBox from './components/RigBox.jsx';
+import RiverIntelligence from './components/RiverIntelligence.jsx';
+import Journal from './components/Journal.jsx';
+import RiverRemembers from './components/RiverRemembers.jsx';
 import SeasonSheet from './components/SeasonSheet.jsx';
 
 const NAV = [
@@ -37,6 +40,8 @@ export default function App() {
   const [newTrip, setNewTrip] = useState(false);
   // Season sheet: null, or { mode:'start' } / { mode:'rename', season }.
   const [seasonSheet, setSeasonSheet] = useState(null);
+  // The session whose "River Remembers" recap is open (null = closed).
+  const [remembering, setRemembering] = useState(null);
   // Lightweight toast — the original's toast(): a short message that fades.
   const [toast, setToast] = useState('');
 
@@ -123,6 +128,7 @@ export default function App() {
             onLandFish={startLogging}
             onNewTrip={() => setNewTrip(true)}
             onOpenLivewell={() => setPage('livewell')}
+            onRemember={() => { const s = activeSession(); if (s && s.id) setRemembering(s); else showToast('Start a trip first'); }}
             onSync={doSync}
             signedIn={auth.signedIn}
           />
@@ -138,7 +144,17 @@ export default function App() {
             onToast={showToast}
           />
         )}
-        {page !== 'boathouse' && page !== 'livewell' && page !== 'tackle' && page !== 'rigbox' && (
+        {page === 'intelligence' && <RiverIntelligence />}
+        {page === 'campfire' && (
+          <Journal
+            onStartSeason={() => setSeasonSheet({ mode: 'start' })}
+            onManageChapters={() => setPage('rigbox')}
+            onOpenLivewell={() => setPage('livewell')}
+            onRemember={(session) => setRemembering(session)}
+            onToast={showToast}
+          />
+        )}
+        {page !== 'boathouse' && page !== 'livewell' && page !== 'tackle' && page !== 'rigbox' && page !== 'intelligence' && page !== 'campfire' && (
           <div className="glass panel">
             <span className="eyebrow">Coming soon</span>
             <h2 style={{ marginTop: 8 }}>{NAV.find((n) => n[0] === page)?.[2]}</h2>
@@ -155,6 +171,7 @@ export default function App() {
           catchId={openCatchId}
           onClose={() => setOpenCatchId(null)}
           onEdit={(c) => { setOpenCatchId(null); setEditingCatch(c); }}
+          onRemember={(session) => setRemembering(session)}
         />
       )}
 
@@ -184,6 +201,10 @@ export default function App() {
           onClose={() => setSeasonSheet(null)}
           onDone={showToast}
         />
+      )}
+
+      {remembering && (
+        <RiverRemembers session={remembering} onClose={() => setRemembering(null)} />
       )}
 
       {toast && (

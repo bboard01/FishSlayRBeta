@@ -9,7 +9,7 @@ import { ratingStars, fishEmoji, speciesClass } from '../lib/fishDisplay.js';
 // FishCard is tapped. Close / Edit Catch / Trip Story / Delete mirror the
 // original action row; Edit and Trip Story are stubbed until those flows land
 // (they're disabled rather than hidden so the layout matches the original).
-export default function CatchSheet({ catchId, onClose, onEdit }) {
+export default function CatchSheet({ catchId, onClose, onEdit, onRemember }) {
   const { data, update, sessionFor, biggest, catchesForSession } = useData();
 
   const c = data.catches.find((x) => x.id === catchId);
@@ -123,7 +123,12 @@ export default function CatchSheet({ catchId, onClose, onEdit }) {
           <button className="btn" onClick={() => onEdit && onEdit(c)}>
             Edit Catch
           </button>
-          <button className="btn gold" disabled title="Coming soon in the new build">
+          <button
+            className="btn gold"
+            onClick={() => { if (onRemember) { onRemember(s); onClose && onClose(); } }}
+            disabled={!s || !s.id}
+            title={s && s.id ? 'Open the trip story' : 'No trip for this catch'}
+          >
             Trip Story
           </button>
           <button className="btn danger" onClick={handleDelete}>Delete</button>

@@ -18,7 +18,7 @@ function greeting(session, catchCount) {
 // and greeting are all live again (the port had replaced them with static
 // migration copy). "Land a Fish" opens the catch flow; the other actions jump
 // to their screens as those ports land.
-export default function Boathouse({ onLandFish, onNewTrip, onOpenLivewell, onSync, signedIn }) {
+export default function Boathouse({ onLandFish, onNewTrip, onOpenLivewell, onRemember, onSync, signedIn }) {
   const { data, activeSession, catchesForSession, currentSeason } = useData();
 
   const s = activeSession() || {};
@@ -62,7 +62,12 @@ export default function Boathouse({ onLandFish, onNewTrip, onOpenLivewell, onSyn
               <button className="btn" onClick={() => onOpenLivewell && onOpenLivewell()}>
                 Today's Livewell
               </button>
-              <button className="btn gold" disabled title="Coming soon in the new build">
+              <button
+                className="btn gold"
+                onClick={() => onRemember && onRemember()}
+                disabled={!s.id}
+                title={s.id ? 'Open the trip story' : 'Start a trip first'}
+              >
                 The River Remembers
               </button>
             </div>

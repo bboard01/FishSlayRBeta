@@ -89,3 +89,42 @@ export function seasonMoodName() {
   if (m >= 9 && m <= 11) return 'Fall';
   return 'Winter';
 }
+
+// ---- Journal / Campfire helpers (ported 1:1 from the single-file app) ----
+
+export function chapterSessions(data, id) {
+  return data.sessions.filter((s) => s.season === id);
+}
+
+// Subtitle for a season "book" cover (chapterSubtitle).
+export function chapterSubtitle(s, st) {
+  if (s?.subtitle) return s.subtitle;
+  if (String(s?.name || '').toLowerCase().includes('canada')) return 'The Canada Expedition';
+  if (st?.topWater) return `${st.topWater} • ${st.topLure || 'learning the bite'}`;
+  return 'A chapter waiting for memories.';
+}
+
+// The year label a season is shelved under (chapterYear).
+export function chapterYear(data, s) {
+  const fromName = String(s?.name || s?.id || '').match(/20\d{2}/);
+  if (fromName) return fromName[0];
+  const first = chapterSessions(data, s?.id).map((x) => x.date).filter(Boolean).sort()[0];
+  return first ? String(first).slice(0, 4) : String(new Date().getFullYear());
+}
+
+// Trip cover theme class + icon (tripCoverClass / tripCoverIcon).
+export function tripCoverClass(s = {}) {
+  const w = String(s.water || '').toLowerCase();
+  const t = String(s.waterType || '').toLowerCase();
+  const sky = String(s.sky || '').toLowerCase();
+  if (sky.includes('night')) return 'cover-night';
+  if (w.includes('lake') || t.includes('lake') || w.includes('woods') || w.includes('ontario')) return 'cover-lake';
+  if (w.includes('creek') || t.includes('creek') || t.includes('stream')) return 'cover-creek';
+  return 'cover-river';
+}
+export function tripCoverIcon(s = {}) {
+  const w = String(s.water || '').toLowerCase();
+  if (w.includes('lake') || w.includes('ontario') || w.includes('woods')) return '⛰️';
+  if (w.includes('creek')) return '🌿';
+  return '🌊';
+}
