@@ -294,6 +294,23 @@ export default function App() {
         )}
       </main>
 
+      {/* Mobile bottom nav — the phone-only scrollable tab bar (the .rail is
+          hidden under 760px). Ported from the original's #mobileNav: icon over a
+          short label, active state, horizontal scroll. CSS shows it only on
+          mobile and hides it in water mode. */}
+      <nav className="mobile-nav">
+        {NAV.map(([id, icon, label]) => (
+          <button
+            key={id}
+            className={page === id ? 'active' : ''}
+            onClick={() => setPage(id)}
+          >
+            <div>{icon}</div>
+            <small>{label.split(' ')[0]}</small>
+          </button>
+        ))}
+      </nav>
+
       {openCatchId && (
         <CatchSheet
           catchId={openCatchId}
