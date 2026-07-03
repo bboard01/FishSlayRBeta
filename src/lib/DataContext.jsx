@@ -67,14 +67,16 @@ export function DataProvider({ children }) {
   // Offline-first + safe: never throws into the UI, never blocks; if it fails
   // the local journal keeps working and the dirty flags stay set for retry.
   const runSync = useCallback(async () => {
-    if (!signedInRef.current || !navigator.onLine) return;
-    if (syncingRef.current) return;
+    if (!signedInRef.current || !navigator.onLine) return false;
+    if (syncingRef.current) return false;
     syncingRef.current = true;
     try {
       const merged = await syncNow(dataRef.current);
       if (merged) setData(merged);
+      return true;
     } catch {
       /* transient / offline — local still authoritative */
+      return false;
     } finally {
       syncingRef.current = false;
     }

@@ -67,6 +67,16 @@ export default function App() {
     setLogging(true);
   };
 
+  // Manual "Sync Now" — runs a full push+pull and reports the result, the same
+  // on-demand sync the original's topbar "☁️ Sync" gave. Automatic background
+  // sync still runs on changes and reconnect.
+  const doSync = async () => {
+    if (!auth.signedIn) { showToast('Sign in to sync'); return; }
+    if (!navigator.onLine) { showToast('Offline — will sync when back online'); return; }
+    const ok = await runSync();
+    showToast(ok ? '☁️ Synced' : 'Sync failed');
+  };
+
   // Called by LogCatch after a fish is saved — mirror landFish()'s tail: play
   // the right toast and drop the user into the livewell to see the new fish.
   const onLanded = (obj, isPB) => {
@@ -97,7 +107,7 @@ export default function App() {
         </nav>
         <div className="rail-bottom">
           {pulling && <div className="muted" style={{ fontSize: '.75rem', marginBottom: 8 }}>☁️ Syncing…</div>}
-          <CloudButton auth={auth} />
+          <CloudButton auth={auth} onSync={doSync} />
         </div>
       </aside>
 
@@ -107,6 +117,8 @@ export default function App() {
             onLandFish={startLogging}
             onNewTrip={() => setNewTrip(true)}
             onOpenLivewell={() => setPage('livewell')}
+            onSync={doSync}
+            signedIn={auth.signedIn}
           />
         )}
         {page === 'livewell' && <Livewell onOpenCatch={openCatch} />}

@@ -1,9 +1,12 @@
 import { useState } from 'react';
 
-// Sign in with Google when signed out; shows account when signed in.
-// Sync wiring will attach once the sync engine module is ported.
-export default function CloudButton({ auth }) {
+// Sign in with Google when signed out; when signed in, shows the account plus a
+// manual "Sync Now" (the sync engine is ported, so this runs a full push+pull).
+// Automatic background sync still happens on changes/reconnect; this is the same
+// on-demand trigger the original's topbar "☁️ Sync" gave.
+export default function CloudButton({ auth, onSync }) {
   const [busy, setBusy] = useState(false);
+  const [syncing, setSyncing] = useState(false);
 
   if (!auth.ready) {
     return <div className="dock-card"><span className="muted">Cloud…</span></div>;
@@ -31,7 +34,19 @@ export default function CloudButton({ auth }) {
   return (
     <div className="dock-card">
       <span className="label">☁️ {auth.email}</span>
-      <button className="btn danger small" onClick={auth.signOut}>Sign Out</button>
+      <div className="actions" style={{ marginTop: 8 }}>
+        <button
+          className="btn small"
+          disabled={syncing}
+          onClick={async () => {
+            setSyncing(true);
+            try { await (onSync && onSync()); } finally { setSyncing(false); }
+          }}
+        >
+          {syncing ? '☁️ Syncing…' : '☁️ Sync Now'}
+        </button>
+        <button className="btn danger small" onClick={auth.signOut}>Sign Out</button>
+      </div>
     </div>
   );
 }

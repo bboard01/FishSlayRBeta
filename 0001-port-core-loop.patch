@@ -1,0 +1,2642 @@
+From 6041706b1b079c6156aff83126b20721049a0575 Mon Sep 17 00:00:00 2001
+From: FishSlayR Dev <dev@fishslayr.local>
+Date: Fri, 3 Jul 2026 02:06:28 +0000
+Subject: [PATCH] Port core loop to React: catch sheet, log-a-catch, push sync,
+ photos, New Trip, loadouts
+
+- CatchSheet: catch card detail view + soft-delete (tombstone, cloud+local photo cleanup)
+- LogCatch: 4-step species/length/lure/details flow with photo capture and quick-rig loadouts
+- Push sync: full push+pull engine (dirty tracking, last-write-wins, tombstones, first-sign-in migration)
+- Photo layer: IndexedDB blob store, downscale + thumbnails, EXIF date/GPS, live geolocation, Storage upload/download
+- NewTrip: full trip context form (openSessionSheet/saveSession)
+- Loadouts: Tackle Box manager (5 slots, editor, delete), apply/save in catch flow, sync via profile
+- Boathouse hero restored to original wording/bubbles; shared fishDisplay + refs helpers
+All wording/markup carried over verbatim from the single-file app. Deferred: photo-less stubs for Edit Catch/Trip Story/Templates.
+---
+ src/App.jsx                      | 105 +++++-
+ src/components/Boathouse.jsx     |  83 +++--
+ src/components/CatchSheet.jsx    | 134 ++++++++
+ src/components/FishCard.jsx      |  28 +-
+ src/components/LoadoutEditor.jsx |  95 ++++++
+ src/components/LogCatch.jsx      | 458 ++++++++++++++++++++++++++
+ src/components/NewTrip.jsx       | 198 ++++++++++++
+ src/components/TackleBox.jsx     | 102 ++++++
+ src/lib/DataContext.jsx          |  97 +++++-
+ src/lib/fishDisplay.js           |  37 +++
+ src/lib/loadouts.js              |  28 ++
+ src/lib/photos.js                | 245 ++++++++++++++
+ src/lib/refs.js                  | 537 +++++++++++++++++++++++++++++++
+ src/lib/sync.js                  | 229 +++++++++++--
+ 14 files changed, 2274 insertions(+), 102 deletions(-)
+ create mode 100644 src/components/CatchSheet.jsx
+ create mode 100644 src/components/LoadoutEditor.jsx
+ create mode 100644 src/components/LogCatch.jsx
+ create mode 100644 src/components/NewTrip.jsx
+ create mode 100644 src/components/TackleBox.jsx
+ create mode 100644 src/lib/fishDisplay.js
+ create mode 100644 src/lib/loadouts.js
+ create mode 100644 src/lib/photos.js
+ create mode 100644 src/lib/refs.js
+
+diff --git a/src/App.jsx b/src/App.jsx
+index 8bcd75a..12cc3e9 100644
+--- a/src/App.jsx
++++ b/src/App.jsx
+@@ -1,10 +1,13 @@
+ import { useState, useEffect } from 'react';
+ import { useAuth } from './lib/useAuth.js';
+ import { useData } from './lib/DataContext.jsx';
+-import { pullFromCloud } from './lib/sync.js';
+ import Boathouse from './components/Boathouse.jsx';
+ import Livewell from './components/Livewell.jsx';
+ import CloudButton from './components/CloudButton.jsx';
++import CatchSheet from './components/CatchSheet.jsx';
++import LogCatch from './components/LogCatch.jsx';
++import NewTrip from './components/NewTrip.jsx';
++import TackleBox from './components/TackleBox.jsx';
+ 
+ const NAV = [
+   ['boathouse', '🛶', 'Boathouse'],
+@@ -20,26 +23,55 @@ const NAV = [
+ export default function App() {
+   const [page, setPage] = useState('boathouse');
+   const auth = useAuth();
+-  const { data, replaceData } = useData();
++  const { setSignedIn, runSync, activeSession } = useData();
+   const [pulling, setPulling] = useState(false);
++  // Which catch card is open in the detail sheet (null = closed).
++  const [openCatchId, setOpenCatchId] = useState(null);
++  // Whether the multi-step "Land the Fish" logging flow is open.
++  const [logging, setLogging] = useState(false);
++  // Whether the New Trip sheet is open.
++  const [newTrip, setNewTrip] = useState(false);
++  // Lightweight toast — the original's toast(): a short message that fades.
++  const [toast, setToast] = useState('');
+ 
+-  // Offline-first: local data loads instantly. When signed in AND online, pull
+-  // newer cloud records in the background and merge them into local. On a fresh
+-  // device this is what brings the real journal down; otherwise it just tops up.
++  const showToast = (msg) => {
++    setToast(msg);
++    setTimeout(() => setToast((t) => (t === msg ? '' : t)), 2300);
++  };
++
++  // Offline-first: local data loads instantly. When auth resolves, tell the
++  // data layer whether we're signed in — it handles first-sign-in server seeding
++  // and background push+pull without ever blocking the UI.
+   useEffect(() => {
+-    if (!auth.signedIn || !navigator.onLine) return;
++    if (!auth.ready) return;
+     let cancelled = false;
+-    setPulling(true);
+-    pullFromCloud(data)
+-      .then((next) => { if (next && !cancelled) replaceData(next); })
+-      .catch(() => { /* offline / transient — local still works */ })
+-      .finally(() => { if (!cancelled) setPulling(false); });
++    setSignedIn(auth.signedIn);
++    if (auth.signedIn && navigator.onLine) {
++      setPulling(true);
++      Promise.resolve(runSync()).finally(() => { if (!cancelled) setPulling(false); });
++    }
+     return () => { cancelled = true; };
+     // eslint-disable-next-line react-hooks/exhaustive-deps
+-  }, [auth.signedIn]);
++  }, [auth.ready, auth.signedIn]);
+ 
+   const openCatch = (id) => {
+-    console.log('open catch', id);
++    // A real id opens its catch card. `null` comes from "Land Another" — open
++    // the logging flow. If no trip is active yet, start one first (logging
++    // attaches catches to the active session).
++    if (id) { setOpenCatchId(id); return; }
++    startLogging();
++  };
++
++  const startLogging = () => {
++    if (!activeSession()) { setNewTrip(true); showToast('Start a trip first'); return; }
++    setLogging(true);
++  };
++
++  // Called by LogCatch after a fish is saved — mirror landFish()'s tail: play
++  // the right toast and drop the user into the livewell to see the new fish.
++  const onLanded = (obj, isPB) => {
++    showToast(isPB ? '🏆 A New Legend' : '🌊 The River Remembers');
++    setPage('livewell');
+   };
+ 
+   return (
+@@ -70,9 +102,16 @@ export default function App() {
+       </aside>
+ 
+       <main className="main">
+-        {page === 'boathouse' && <Boathouse />}
++        {page === 'boathouse' && (
++          <Boathouse
++            onLandFish={startLogging}
++            onNewTrip={() => setNewTrip(true)}
++            onOpenLivewell={() => setPage('livewell')}
++          />
++        )}
+         {page === 'livewell' && <Livewell onOpenCatch={openCatch} />}
+-        {page !== 'boathouse' && page !== 'livewell' && (
++        {page === 'tackle' && <TackleBox onToast={showToast} />}
++        {page !== 'boathouse' && page !== 'livewell' && page !== 'tackle' && (
+           <div className="glass panel">
+             <span className="eyebrow">Coming soon</span>
+             <h2 style={{ marginTop: 8 }}>{NAV.find((n) => n[0] === page)?.[2]}</h2>
+@@ -83,6 +122,42 @@ export default function App() {
+           </div>
+         )}
+       </main>
++
++      {openCatchId && (
++        <CatchSheet catchId={openCatchId} onClose={() => setOpenCatchId(null)} />
++      )}
++
++      {logging && (
++        <LogCatch onClose={() => setLogging(false)} onLanded={onLanded} onToast={showToast} />
++      )}
++
++      {newTrip && (
++        <NewTrip
++          onClose={() => setNewTrip(false)}
++          onLaunched={() => { showToast('The boat is in the water'); setPage('boathouse'); }}
++        />
++      )}
++
++      {toast && (
++        <div
++          className="toast"
++          style={{
++            position: 'fixed',
++            right: 20,
++            bottom: 20,
++            zIndex: 160,
++            border: '1px solid rgba(125,231,255,.3)',
++            background: 'rgba(3,17,30,.92)',
++            color: '#dff8ff',
++            borderRadius: 18,
++            padding: '13px 16px',
++            fontWeight: 950,
++            boxShadow: 'var(--shadow)',
++          }}
++        >
++          {toast}
++        </div>
++      )}
+     </div>
+   );
+ }
+diff --git a/src/components/Boathouse.jsx b/src/components/Boathouse.jsx
+index 43c853a..465c056 100644
+--- a/src/components/Boathouse.jsx
++++ b/src/components/Boathouse.jsx
+@@ -1,45 +1,72 @@
+-// First ported screen — a real React component using the existing CSS classes,
+-// so it looks identical to the single-file app. Data wiring (seasons, sessions,
+-// catches) gets connected as we port the data layer in the next steps.
+-export default function Boathouse() {
++import { useData } from '../lib/DataContext.jsx';
++
++// The greeting line under the hero heading — ported 1:1 from the original
++// greeting(). Speaks to how the day is going based on the active session and
++// how many fish are in the livewell.
++function greeting(session, catchCount) {
++  const s = session || {};
++  if (!s.id) return 'The river is waiting. Start a trip to write a chapter.';
++  if (catchCount === 0)
++    return `The river's been waiting. ${s.name || 'Today'} is ready for its first fish.`;
++  if (catchCount < 5)
++    return `The day has started. ${catchCount} fish logged and the pattern is beginning to speak.`;
++  return `Look at the day you're having. ${catchCount} fish in, and the river is telling a story.`;
++}
++
++// The Boathouse hero — restored to match the original hero(). Reads the active
++// session and its catches from the data context so the eyebrow, heading, chips,
++// and greeting are all live again (the port had replaced them with static
++// migration copy). "Land a Fish" opens the catch flow; the other actions jump
++// to their screens as those ports land.
++export default function Boathouse({ onLandFish, onNewTrip, onOpenLivewell }) {
++  const { data, activeSession, catchesForSession, currentSeason } = useData();
++
++  const s = activeSession() || {};
++  const c = catchesForSession(s.id);
++  const seasonName = (currentSeason() || {}).name || 'Season';
++
+   return (
+     <>
+       <div className="topbar">
+         <span className="eyebrow">v2.0 • Season Journal</span>
++        <div className="actions">
++          <button className="btn" onClick={() => onNewTrip && onNewTrip()}>New Trip</button>
++          <button className="btn primary" onClick={() => onLandFish && onLandFish()}>Land a Fish</button>
++        </div>
+       </div>
+ 
+       <div className="hero">
+         <div className="hero-grid">
+           <div>
+-            <span className="eyebrow">Active Season</span>
+-            <h2>The river remembers.</h2>
++            <span className="eyebrow">
++              {seasonName} • {s.active ? 'Current Trip' : 'Latest Chapter'}
++            </span>
++            <h2>{s.water || 'Your Boathouse'}</h2>
+             <p className="subtitle">
+-              FishSlayR is now running on the new build. This Boathouse screen is
+-              live in React with the original look intact. The rest of the app is
+-              being ported over screen by screen.
++              {greeting(s, c.length)} {s.area ? `• ${s.area}` : ''}
+             </p>
+             <div className="chips">
+-              <span className="chip green">React + Vite</span>
+-              <span className="chip gold">Supabase connected</span>
+-              <span className="chip">Offline-first</span>
++              <span className="chip">📍 {s.state || 'PA'}</span>
++              <span className="chip">🌡 {s.waterTemp || '--'}° water</span>
++              <span className="chip">🌤 {s.weather || '--'}</span>
++              <span className="chip">🌊 {s.flow || '--'}</span>
++              <span className="chip green">🐟 {c.length} in the livewell</span>
++            </div>
++            <div className="actions">
++              <button className="btn primary" onClick={() => onLandFish && onLandFish()}>
++                Land a Fish
++              </button>
++              <button className="btn" onClick={() => onOpenLivewell && onOpenLivewell()}>
++                Today's Livewell
++              </button>
++              <button className="btn gold" disabled title="Coming soon in the new build">
++                The River Remembers
++              </button>
+             </div>
+           </div>
+-          <div className="land-orb"><span>🐟</span></div>
+-        </div>
+-      </div>
+-
+-      <div className="grid">
+-        <div className="glass panel span4">
+-          <h3>Season Fish</h3>
+-          <div className="metric"><strong>—</strong><span>Total</span></div>
+-        </div>
+-        <div className="glass panel span4">
+-          <h3>Trips</h3>
+-          <div className="metric"><strong>—</strong><span>In book</span></div>
+-        </div>
+-        <div className="glass panel span4">
+-          <h3>Waters</h3>
+-          <div className="metric"><strong>—</strong><span>Visited</span></div>
++          <button className="land-orb" onClick={() => onLandFish && onLandFish()}>
++            <div><span>🎣</span>LAND A FISH</div>
++          </button>
+         </div>
+       </div>
+     </>
+diff --git a/src/components/CatchSheet.jsx b/src/components/CatchSheet.jsx
+new file mode 100644
+index 0000000..d5da252
+--- /dev/null
++++ b/src/components/CatchSheet.jsx
+@@ -0,0 +1,134 @@
++import { useEffect, useRef } from 'react';
++import { useData } from '../lib/DataContext.jsx';
++import { deleteCloudPhoto } from '../lib/sync.js';
++import { photoGet, photoDelete } from '../lib/photos.js';
++import { ratingStars, fishEmoji, speciesClass } from '../lib/fishDisplay.js';
++
++// The catch card detail view — ported from the single-file app's openFishCard().
++// Same sheet chrome, same fish-detail-grid layout, same wording. Opens when a
++// FishCard is tapped. Close / Edit Catch / Trip Story / Delete mirror the
++// original action row; Edit and Trip Story are stubbed until those flows land
++// (they're disabled rather than hidden so the layout matches the original).
++export default function CatchSheet({ catchId, onClose }) {
++  const { data, update, sessionFor, biggest, catchesForSession } = useData();
++
++  const c = data.catches.find((x) => x.id === catchId);
++  // If the catch vanished (e.g. just deleted), render nothing.
++  if (!c) return null;
++
++  const s = sessionFor(c.sessionId);
++  const isBest = (biggest(catchesForSession(c.sessionId)) || {}).id === c.id;
++
++  // Show the full-res photo from IndexedDB in the card, swapping in over the
++  // thumbnail once it loads — ported from showCatchPhoto(). Falls back to the
++  // thumbnail (already the img src) if the blob isn't stored locally.
++  const imgRef = useRef(null);
++  useEffect(() => {
++    if (!c.photoThumb) return;
++    let url = null;
++    let cancelled = false;
++    photoGet(c.id).then((blob) => {
++      if (blob && imgRef.current && !cancelled) {
++        url = URL.createObjectURL(blob);
++        imgRef.current.src = url;
++      }
++    });
++    return () => { cancelled = true; if (url) URL.revokeObjectURL(url); };
++  }, [c.id, c.photoThumb]);
++
++  // Ported verbatim from deleteCatch(): same confirm copy, soft-delete + dirty
++  // flag so the tombstone propagates on the next push sync rather than being
++  // hard-removed locally (which would just re-sync back down from Supabase).
++  const handleDelete = () => {
++    const label = `${c.length || ''}" ${c.species || 'fish'}`.trim();
++    const ok = window.confirm(
++      `Delete this catch (${label})?\n\n` +
++      `This removes it from every device the next time you sync, and its photo ` +
++      `will be deleted from the cloud. This can't be undone.`
++    );
++    if (!ok) return;
++
++    update((prev) => ({
++      ...prev,
++      catches: prev.catches.map((x) =>
++        x.id === c.id
++          ? { ...x, deleted: true, updated_at: new Date().toISOString(), _dirty: true }
++          : x
++      ),
++    }));
++    // Photo cleanup: remove the local IndexedDB blob and the cloud copy via the
++    // Storage API (the supported path). The tombstone above + the scheduled push
++    // (triggered by update) carry the delete across devices.
++    if (c.hasPhoto) { photoDelete(c.id); deleteCloudPhoto(c.id); }
++    onClose();
++  };
++
++  const notes = c.notes ||
++    `Caught on ${c.color || 'a'} ${c.lure || 'bait'} around ${c.structure || 'fishy water'}.`;
++
++  return (
++    <div className="sheet-backdrop active" onClick={onClose}>
++      <div className="sheet" onClick={(e) => e.stopPropagation()}>
++        <div className="sheet-head">
++          <div>
++            <h2>Catch Card</h2>
++            <div className="muted">
++              {(s.title || s.name || 'Trip') + ' • ' + (s.water || 'Unknown water')}
++            </div>
++          </div>
++          <button className="btn small" onClick={onClose}>Close</button>
++        </div>
++
++        <div className="sheet-body">
++          <div className="fish-detail-grid">
++            <div className={`fish-detail-hero ${speciesClass(c.species)}`}>
++              {c.photoThumb ? (
++                <div className="catch-photo-full">
++                  <img ref={imgRef} src={c.photoThumb} alt={c.species} />
++                </div>
++              ) : (
++                <div className="big-fish">{fishEmoji(c.species)}</div>
++              )}
++              <span className="eyebrow">
++                {isBest ? 'Biggest of the Trip' : 'FishSlayR Catch Card'}
++              </span>
++              <h2>{c.length}"</h2>
++              <p className="story">
++                <strong>{c.species}</strong>
++                <br />
++                {(c.color || '') + ' ' + (c.lure || '')} • {c.time || '--:--'}
++              </p>
++              <div className="chips">
++                <span className="chip gold">{ratingStars(c.rating || 3)}</span>
++                <span className="chip">{c.disposition || 'Released'}</span>
++                <span className="chip">{c.depth || 'Depth n/a'}</span>
++              </div>
++            </div>
++
++            <div className="fish-detail-notes">
++              <span className="eyebrow">The River Remembers</span>
++              <p>{notes}</p>
++              <div className="chips">
++                <span className="chip">🌊 {s.water || ''}</span>
++                <span className="chip">🎣 {s.method || ''}</span>
++                <span className="chip">🌤 {s.weather || ''}</span>
++                <span className="chip">📍 {c.structure || ''}</span>
++              </div>
++            </div>
++          </div>
++        </div>
++
++        <div className="sheet-actions">
++          <button className="btn" onClick={onClose}>Close</button>
++          <button className="btn" disabled title="Coming soon in the new build">
++            Edit Catch
++          </button>
++          <button className="btn gold" disabled title="Coming soon in the new build">
++            Trip Story
++          </button>
++          <button className="btn danger" onClick={handleDelete}>Delete</button>
++        </div>
++      </div>
++    </div>
++  );
++}
+diff --git a/src/components/FishCard.jsx b/src/components/FishCard.jsx
+index 33b7733..6b9dbad 100644
+--- a/src/components/FishCard.jsx
++++ b/src/components/FishCard.jsx
+@@ -1,27 +1,13 @@
++import { ratingStars, fishEmoji, speciesClass } from '../lib/fishDisplay.js';
++
+ // A single catch card — ported from the single-file app's fishCardHTML.
+ // Photo handling (IndexedDB thumbnails) comes when we port the photo layer;
+ // for now it shows the thumbnail if the catch object carries one.
+-
+-function ratingStars(n) {
+-  const r = Math.max(0, Math.min(5, +n || 0));
+-  return '★'.repeat(r) + '☆'.repeat(5 - r);
+-}
+-
+-const FISH_EMOJI = { default: '🐟' };
+-function fishEmoji(species) {
+-  const s = String(species || '').toLowerCase();
+-  if (s.includes('bass')) return '🎣';
+-  if (s.includes('trout') || s.includes('salmon')) return '🐟';
+-  if (s.includes('pike') || s.includes('musk')) return '🐊';
+-  if (s.includes('cat')) return '🐱';
+-  return FISH_EMOJI.default;
+-}
+-
+-export default function FishCard({ c, isBig, onOpen }) {
++export default function FishCard({ c, isBig, isFirst, onOpen }) {
+   const rating = +c.rating || 3;
+   return (
+     <button
+-      className={`fish-card ${isBig ? 'pb' : ''}`}
++      className={`fish-card ${speciesClass(c.species)} ${isBig ? 'pb' : ''}`}
+       onClick={() => onOpen(c.id)}
+     >
+       {c.photoThumb && (
+@@ -32,7 +18,11 @@ export default function FishCard({ c, isBig, onOpen }) {
+       <div className="photo-tag">
+         {c.photoThumb ? (c.photoTag || '📸 Photo') : '📸 No Photo Yet'}
+       </div>
+-      {isBig && <span className="fish-ribbon">BIGGEST</span>}
++      {isBig ? (
++        <span className="fish-ribbon">BIGGEST</span>
++      ) : isFirst ? (
++        <span className="fish-ribbon green">FIRST</span>
++      ) : null}
+       <div className="fish-head">
+         <div className="icon">{fishEmoji(c.species)}</div>
+         <span className={`chip ${isBig ? 'gold' : ''}`} style={{ padding: '4px 8px' }}>
+diff --git a/src/components/LoadoutEditor.jsx b/src/components/LoadoutEditor.jsx
+new file mode 100644
+index 0000000..e1a903a
+--- /dev/null
++++ b/src/components/LoadoutEditor.jsx
+@@ -0,0 +1,95 @@
++import { useState } from 'react';
++import { useData, uid } from '../lib/DataContext.jsx';
++import { ensureLoadouts } from '../lib/loadouts.js';
++
++// New/Edit Loadout sheet — ported from openLoadoutEditor + renderLoadoutEditor +
++// saveLoadout. Same "Quick rigs fill the catch card in one tap." framing and the
++// same field set (name, rod, category, lure, color, presentation, depth).
++// Loadouts sync via the profile, so saving goes through updateProfile.
++export default function LoadoutEditor({ index, onClose }) {
++  const { data, updateProfile } = useData();
++  const refs = data.refs || {};
++  const outs = ensureLoadouts(data);
++  const existing = index >= 0 ? outs[index] : null;
++
++  const [d, setD] = useState(() => ({
++    name: '', rod: '',
++    category: refs.lureCategories?.[0],
++    lure: refs.lures?.[0],
++    color: refs.colors?.[0],
++    presentation: refs.presentation?.[0],
++    depth: refs.depth?.[0],
++    ...(existing || {}),
++  }));
++
++  const set = (key, value) => setD((prev) => ({ ...prev, [key]: value }));
++
++  const Sel = ({ label, field, options }) => (
++    <label>
++      {label}
++      <select value={d[field]} onChange={(e) => set(field, e.target.value)}>
++        {(options || []).map((x) => <option key={x}>{x}</option>)}
++      </select>
++    </label>
++  );
++
++  const save = () => {
++    const rec = { ...d };
++    if (!rec.name) rec.name = (rec.color ? rec.color + ' ' : '') + (rec.lure || 'Rig');
++    rec.name = rec.name.slice(0, 28);
++    if (!rec.id) rec.id = uid();
++
++    updateProfile((prev) => {
++      const arr = Array.isArray(prev.loadouts) ? prev.loadouts.slice() : [];
++      if (index >= 0 && arr[index]) arr[index] = rec;
++      else arr.push(rec);
++      return { ...prev, loadouts: arr };
++    });
++    onClose();
++  };
++
++  return (
++    <div className="sheet-backdrop active" onClick={onClose}>
++      <div className="sheet" onClick={(e) => e.stopPropagation()}>
++        <div className="sheet-head">
++          <div>
++            <h2>{existing ? 'Edit Loadout' : 'New Loadout'}</h2>
++            <div className="muted">Quick rigs fill the catch card in one tap.</div>
++          </div>
++          <button className="btn small" onClick={onClose}>Close</button>
++        </div>
++
++        <div className="sheet-body">
++          <div className="details">
++            <label>
++              Loadout Name
++              <input
++                value={d.name || ''}
++                placeholder="e.g. Ned Rig Finesse"
++                onChange={(e) => set('name', e.target.value)}
++              />
++            </label>
++            <label>
++              Rod / Reel / Line (optional)
++              <input
++                value={d.rod || ''}
++                placeholder="e.g. 7' ML spinning, 10lb braid"
++                onChange={(e) => set('rod', e.target.value)}
++              />
++            </label>
++            <Sel label="Bait Category" field="category" options={refs.lureCategories} />
++            <Sel label="Lure" field="lure" options={refs.lures} />
++            <Sel label="Color" field="color" options={refs.colors} />
++            <Sel label="Presentation" field="presentation" options={refs.presentation} />
++            <Sel label="Depth" field="depth" options={refs.depth} />
++          </div>
++        </div>
++
++        <div className="sheet-actions">
++          <button className="btn" onClick={onClose}>Cancel</button>
++          <button className="btn primary" onClick={save}>Save Loadout</button>
++        </div>
++      </div>
++    </div>
++  );
++}
+diff --git a/src/components/LogCatch.jsx b/src/components/LogCatch.jsx
+new file mode 100644
+index 0000000..37a33ff
+--- /dev/null
++++ b/src/components/LogCatch.jsx
+@@ -0,0 +1,458 @@
++import { useState } from 'react';
++import { useData, uid } from '../lib/DataContext.jsx';
++import { photoPut, processCatchPhoto, getLiveLocation } from '../lib/photos.js';
++import {
++  uniq,
++  popularSpecies,
++  popularLures,
++  popularColors,
++  prioritizeOptions,
++  formatInches,
++} from '../lib/refs.js';
++import {
++  MAX_LOADOUTS,
++  LOADOUT_FIELDS,
++  ensureLoadouts,
++  loadoutIcon,
++  loadoutSummary,
++  loadoutName,
++} from '../lib/loadouts.js';
++
++// The multi-step "Land the Fish" flow — ported from the single-file app's
++// catch sheet (Phase 2.1: speciesStep, lengthStep, lureStep, detailsStep) and
++// landFish(). Same steps, same wording, same quick-pick + dropdown layout.
++// Photo capture is intentionally deferred to the photo-layer port; the rest of
++// the flow (species, length, lure/color/category/structure, details, notes)
++// is complete and writes a real catch to local storage (offline-first), marked
++// dirty so push sync sends it up when that lands.
++
++const STEP_COUNT = 4;
++
++// selectOptions() from the original prepends 'All' — preserved verbatim so the
++// dropdowns read exactly like the single-file app.
++function SelectOptions({ list, current }) {
++  return ['All', ...list].map((v) => (
++    <option key={v} value={v}>{v}</option>
++  ));
++}
++
++export default function LogCatch({ onClose, onLanded, onToast }) {
++  const { data, activeSession, seasonCatches, biggest, update, updateProfile } = useData();
++  const refs = data.refs || {};
++  const session = activeSession();
++
++  // The working draft — initialised exactly like openCatchSheet().
++  const [draft, setDraft] = useState(() => ({
++    sessionId: session?.id,
++    species: refs.species?.[0],
++    length: 16,
++    category: refs.lureCategories?.[0],
++    lure: refs.lures?.[0],
++    color: refs.colors?.[0],
++    structure: refs.structure?.[0],
++    presentation: refs.presentation?.[0],
++    depth: refs.depth?.[0],
++    disposition: refs.disposition?.[0],
++    time: new Date().toTimeString().slice(0, 5),
++    notes: '',
++  }));
++  const [step, setStep] = useState(0);
++  const [photoStatus, setPhotoStatus] = useState('');
++
++  const set = (key, value) => setDraft((d) => ({ ...d, [key]: value }));
++
++  const loadouts = ensureLoadouts(data);
++
++  // Apply a saved loadout to the draft and jump to the length step — ported from
++  // applyLoadout(idx, true). Fills the rig fields and tags the active loadout.
++  const applyLoadout = (i) => {
++    const l = loadouts[i];
++    if (!l) return;
++    setDraft((d) => {
++      const n = { ...d };
++      LOADOUT_FIELDS.forEach((f) => { if (l[f]) n[f] = l[f]; });
++      n._loadoutName = loadoutName(l, i);
++      return n;
++    });
++    setStep(1);
++    if (onToast) onToast('🧰 ' + (l.name || 'Loadout') + ' rigged');
++  };
++
++  // Save the current rig as a new loadout — ported from saveCurrentAsLoadout().
++  const saveAsLoadout = () => {
++    const outs = ensureLoadouts(data);
++    if (outs.length >= MAX_LOADOUTS) {
++      if (onToast) onToast('All 5 loadout slots are full — free one in the Tackle Box');
++      return;
++    }
++    const name = ((draft.color ? draft.color + ' ' : '') + (draft.lure || 'Rig')).slice(0, 28);
++    const l = { id: uid(), name, rod: '' };
++    LOADOUT_FIELDS.forEach((f) => { l[f] = draft[f] || ''; });
++    updateProfile((prev) => ({ ...prev, loadouts: [...(prev.loadouts || []), l] }));
++    if (onToast) onToast('🧰 Saved “' + l.name + '” to your Tackle Box');
++  };
++
++  // Photo capture — ported from handleCatchPhoto(). Reads EXIF/GPS, builds a
++  // thumbnail + display blob, and autofills time/location. The display blob is
++  // held on the draft and written to IndexedDB at land time (needs the final id).
++  const onPhoto = async (input) => {
++    const file = input.files && input.files[0];
++    if (!file) return;
++    setPhotoStatus('Reading photo…');
++    try {
++      const { patch, status } = await processCatchPhoto(file, session || {});
++      setDraft((d) => ({ ...d, ...patch }));
++      setPhotoStatus(status);
++    } catch (e) {
++      console.warn('photo capture failed', e);
++      setPhotoStatus('Could not read that photo. You can still log the fish.');
++    }
++  };
++
++  const useLiveLocation = async () => {
++    setPhotoStatus('Getting your location…');
++    const loc = await getLiveLocation();
++    if (loc) {
++      setDraft((d) => ({ ...d, photoLat: loc.lat, photoLon: loc.lon, photoGeoSource: 'live' }));
++      setPhotoStatus(`✓ Location captured (±${Math.round(loc.acc)}m)`);
++    } else {
++      setPhotoStatus('Location unavailable or denied.');
++    }
++  };
++
++  const removePhoto = () => {
++    setDraft((d) => {
++      const n = { ...d };
++      delete n._photoDispBlob; delete n.photoThumb; delete n.photoMeta;
++      delete n.photoLat; delete n.photoLon; delete n.photoGeoSource; delete n._photoDateNote;
++      return n;
++    });
++    setPhotoStatus('');
++  };
++
++  const nudgeLength = (delta) => {
++    const v = Math.max(4, Math.min(30, (parseFloat(draft.length) || 16) + delta));
++    set('length', Math.round(v * 4) / 4);
++  };
++
++  // Ported from landFish(): builds the catch object, appends it, marks it dirty
++  // for push sync, and closes. New-personal-best detection drives the toast copy.
++  const landFish = () => {
++    const s = session;
++    if (!s) return; // "Start a trip first" — New Trip flow isn't ported yet
++
++    const prevBig = biggest(seasonCatches())?.length || 0;
++    const obj = {
++      id: uid(),
++      sessionId: draft.sessionId || s.id,
++      species: draft.species,
++      length: +draft.length || 0,
++      weight: +draft.weight || 0,
++      time: draft.time || new Date().toTimeString().slice(0, 5),
++      category: draft.category || '',
++      lure: draft.lure,
++      color: draft.color,
++      structure: draft.structure,
++      presentation: draft.presentation || '',
++      depth: draft.depth || '',
++      disposition: draft.disposition || 'Released',
++      rating: +draft.rating || 4,
++      photoTag: draft.photoTag || '',
++      notes: draft.notes || '',
++      updated_at: new Date().toISOString(),
++      _dirty: true, // so push sync sends it when that port lands
++    };
++
++    // Photo: carry the thumbnail + geo on the object; write the full-res display
++    // blob to IndexedDB under the final catch id, and flag it dirty so sync
++    // uploads it to Supabase Storage. Ported from landFish().
++    if (draft.photoThumb) {
++      obj.photoThumb = draft.photoThumb;
++      obj.hasPhoto = true;
++      obj._photoDirty = true;
++      if (draft.photoMeta) obj.photoMeta = draft.photoMeta;
++      if (draft.photoLat != null) {
++        obj.photoLat = draft.photoLat;
++        obj.photoLon = draft.photoLon;
++        obj.photoGeoSource = draft.photoGeoSource || '';
++      }
++      if (draft._photoDispBlob) photoPut(obj.id, draft._photoDispBlob);
++    }
++    const isPB = (+obj.length || 0) > prevBig;
++
++    update((prev) => ({ ...prev, catches: [...prev.catches, obj] }));
++    onClose();
++    // "🏆 A New Legend" / "🌊 The River Remembers" — jump to the livewell to see
++    // the fish land, mirroring the original.
++    if (onLanded) onLanded(obj, isPB);
++  };
++
++  const next = () => (step === STEP_COUNT - 1 ? landFish() : setStep(step + 1));
++  const back = () => (step === 0 ? onClose() : setStep(step - 1));
++
++  const sub = session
++    ? `Attached to ${session.title || session.name}`
++    : 'Start a trip first';
++
++  return (
++    <div className="sheet-backdrop active" onClick={onClose}>
++      <div className="sheet" onClick={(e) => e.stopPropagation()}>
++        <div className="sheet-head">
++          <div>
++            <h2>Land the Fish</h2>
++            <div className="muted">{sub}</div>
++          </div>
++          <button className="btn small" onClick={onClose}>Close</button>
++        </div>
++
++        <div className="sheet-body">
++          {step === 0 && (
++            <>
++              <h3 className="catch-step-title">What did you catch?</h3>
++              <p className="catch-step-help">
++                Tap a common target, or use the full species list. No duplicate
++                mega-list, no fishing through dropdown chaos.
++              </p>
++              <div className="quick-grid">
++                {uniq(popularSpecies(refs, session || {})).map((x) => (
++                  <button
++                    key={x}
++                    type="button"
++                    className={`quick-choice ${draft.species === x ? 'active' : ''}`}
++                    onClick={() => set('species', x)}
++                  >
++                    <span>🐟</span>{x}
++                  </button>
++                ))}
++              </div>
++              <div className="quick-select-row single">
++                <label>
++                  Full Species List
++                  <select value={draft.species} onChange={(e) => set('species', e.target.value)}>
++                    <SelectOptions list={refs.species || []} current={draft.species} />
++                  </select>
++                </label>
++              </div>
++              {loadouts.length ? (
++                <div className="loadout-quick">
++                  <span className="eyebrow">Quick Rigs — tap to load</span>
++                  <div className="loadout-chip-row">
++                    {loadouts.map((l, i) => (
++                      <button
++                        key={l.id || i}
++                        className={`loadout-chip ${draft._loadoutName === loadoutName(l, i) ? 'active' : ''}`}
++                        onClick={() => applyLoadout(i)}
++                      >
++                        <span className="loadout-chip-icon">{loadoutIcon(l)}</span>
++                        <strong>{loadoutName(l, i)}</strong>
++                        <small>{loadoutSummary(l)}</small>
++                      </button>
++                    ))}
++                  </div>
++                </div>
++              ) : (
++                <div className="loadout-hint muted">
++                  Tip: set up quick rigs in the Tackle Box to fill lure, color,
++                  and depth in one tap.
++                </div>
++              )}
++            </>
++          )}
++
++          {step === 1 && (
++            <>
++              <h3 className="catch-step-title">About how big?</h3>
++              <div className="length-box">
++                <div className="length-display">{formatInches(draft.length || 16)}</div>
++                <input
++                  className="range"
++                  type="range"
++                  min="4"
++                  max="30"
++                  step=".25"
++                  value={draft.length || 16}
++                  onChange={(e) => set('length', parseFloat(e.target.value) || 0)}
++                />
++                <div className="length-nudge">
++                  <button className="btn" onClick={() => nudgeLength(-0.25)}>- ¼″</button>
++                  <button className="btn" onClick={() => nudgeLength(0.25)}>+ ¼″</button>
++                </div>
++              </div>
++            </>
++          )}
++
++          {step === 2 && (
++            <div className="lure-stack">
++              <div>
++                <h3 className="catch-step-title">What caught it?</h3>
++                <p className="catch-step-help">
++                  Fast-pick the bait, then fine-tune color and category if you want.
++                </p>
++                <div className="quick-grid">
++                  {uniq(popularLures(refs, session || {})).map((x) => (
++                    <button
++                      key={x}
++                      type="button"
++                      className={`quick-choice ${draft.lure === x ? 'active' : ''}`}
++                      onClick={() => set('lure', x)}
++                    >
++                      <span>🪝</span>{x}
++                    </button>
++                  ))}
++                </div>
++              </div>
++              <div className="quick-select-row">
++                <label>
++                  Specific Lure
++                  <select value={draft.lure} onChange={(e) => set('lure', e.target.value)}>
++                    <SelectOptions list={refs.lures || []} current={draft.lure} />
++                  </select>
++                </label>
++                <label>
++                  Color
++                  <select value={draft.color} onChange={(e) => set('color', e.target.value)}>
++                    <SelectOptions
++                      list={prioritizeOptions(refs.colors || [], popularColors(refs, session || {}))}
++                      current={draft.color}
++                    />
++                  </select>
++                </label>
++                <label>
++                  Category
++                  <select value={draft.category} onChange={(e) => set('category', e.target.value)}>
++                    <SelectOptions list={refs.lureCategories || []} current={draft.category} />
++                  </select>
++                </label>
++                <label>
++                  Structure
++                  <select value={draft.structure} onChange={(e) => set('structure', e.target.value)}>
++                    <SelectOptions list={refs.structure || []} current={draft.structure} />
++                  </select>
++                </label>
++              </div>
++            </div>
++          )}
++
++          {step === 3 && (
++            <>
++              <h3>Photo &amp; last details — optional</h3>
++              <div className="photo-capture">
++                {draft.photoThumb ? (
++                  <div className="photo-preview">
++                    <img src={draft.photoThumb} alt="catch photo" />
++                    <div className="photo-preview-actions">
++                      <button className="btn small danger" onClick={removePhoto}>Remove Photo</button>
++                    </div>
++                  </div>
++                ) : (
++                  <label className="photo-drop">
++                    <input
++                      type="file"
++                      accept="image/*"
++                      capture="environment"
++                      style={{ display: 'none' }}
++                      onChange={(e) => onPhoto(e.target)}
++                    />
++                    <span className="photo-drop-icon">📷</span>
++                    <strong>Take or choose a photo</strong>
++                    <small>
++                      Snaps the camera on your phone. Time and location fill in
++                      automatically when the photo has them.
++                    </small>
++                  </label>
++                )}
++                <div className="photo-status">
++                  {photoStatus || (draft._photoDateNote ? '⚠ ' + draft._photoDateNote : '')}
++                </div>
++                {draft.photoThumb && draft.photoLat == null && (
++                  <button className="btn small" onClick={useLiveLocation}>
++                    📍 Use my current location
++                  </button>
++                )}
++                {draft.photoLat != null && (
++                  <div className="photo-geo">
++                    📍 {draft.photoLat.toFixed(4)}, {draft.photoLon.toFixed(4)} (
++                    {draft.photoGeoSource === 'photo' ? 'from photo' : 'live'})
++                  </div>
++                )}
++              </div>
++              <div className="details">
++                <label>
++                  Time
++                  <input
++                    value={draft.time}
++                    type="time"
++                    onChange={(e) => set('time', e.target.value)}
++                  />
++                </label>
++                <label>
++                  Presentation
++                  <select value={draft.presentation} onChange={(e) => set('presentation', e.target.value)}>
++                    {(refs.presentation || []).map((x) => <option key={x}>{x}</option>)}
++                  </select>
++                </label>
++                <label>
++                  Depth
++                  <select value={draft.depth} onChange={(e) => set('depth', e.target.value)}>
++                    {(refs.depth || []).map((x) => <option key={x}>{x}</option>)}
++                  </select>
++                </label>
++                <label>
++                  Disposition
++                  <select value={draft.disposition} onChange={(e) => set('disposition', e.target.value)}>
++                    {(refs.disposition || []).map((x) => <option key={x}>{x}</option>)}
++                  </select>
++                </label>
++                <label>
++                  Weight
++                  <input
++                    value={draft.weight || ''}
++                    type="number"
++                    step=".1"
++                    onChange={(e) => set('weight', e.target.value)}
++                  />
++                </label>
++                <label>
++                  Photo Tag
++                  <select value={draft.photoTag || ''} onChange={(e) => set('photoTag', e.target.value)}>
++                    {(refs.photoTags || []).map((x) => <option key={x}>{x}</option>)}
++                  </select>
++                </label>
++                <label>
++                  Fight Rating
++                  <input
++                    value={draft.rating || 4}
++                    type="number"
++                    min="1"
++                    max="5"
++                    onChange={(e) => set('rating', e.target.value)}
++                  />
++                </label>
++                <textarea
++                  placeholder="Notes"
++                  value={draft.notes || ''}
++                  onChange={(e) => set('notes', e.target.value)}
++                />
++              </div>
++              <div className="save-loadout-row">
++                <button className="btn small" onClick={saveAsLoadout}>
++                  🧰 Save this rig as a Loadout
++                </button>
++              </div>
++            </>
++          )}
++        </div>
++
++        <div className="sheet-actions">
++          <button className="btn" onClick={back}>{step === 0 ? 'Cancel' : 'Back'}</button>
++          <div className="muted" style={{ fontWeight: 900, fontSize: '.82rem' }}>
++            Step {step + 1} of {STEP_COUNT}
++          </div>
++          <button className="btn primary" onClick={next}>
++            {step === STEP_COUNT - 1 ? 'LAND IT' : 'Continue'}
++          </button>
++        </div>
++      </div>
++    </div>
++  );
++}
+diff --git a/src/components/NewTrip.jsx b/src/components/NewTrip.jsx
+new file mode 100644
+index 0000000..e5be2b2
+--- /dev/null
++++ b/src/components/NewTrip.jsx
+@@ -0,0 +1,198 @@
++import { useState } from 'react';
++import { useData, uid } from '../lib/DataContext.jsx';
++
++// The New Trip sheet — ported from the single-file app's openSessionSheet() +
++// saveSession(). Same "Where are we headed?" framing, the same full context
++// form (title, water, crew, conditions…), the same defaults, and "Launch Trip"
++// which starts an active session in the current season. Trip Templates sync via
++// the profile and land with that port; the Save-as-Template button is present
++// but stubbed so the action row matches the original.
++
++// Field defaults, mirroring openSessionSheet().
++const DEFAULTS = {
++  title: 'Morning Mist',
++  country: 'United States',
++  state: 'PA',
++  waterType: '',
++  water: '',
++  launch: '',
++  area: 'Harrisburg islands',
++  partners: 'Brian',
++  boat: '',
++  method: '',
++  techniqueFocus: '',
++  target: '',
++  weather: 'Partly cloudy',
++  clarity: '',
++  flow: 'Moderate current',
++  spawnPhase: '',
++  temp: 68,
++  air: 74,
++  sky: '',
++  moon: '',
++  notes: 'A new chapter begins.',
++};
++
++function Select({ label, value, onChange, options }) {
++  return (
++    <label>
++      {label}
++      <select value={value} onChange={(e) => onChange(e.target.value)}>
++        {(options || []).map((x) => <option key={x}>{x}</option>)}
++      </select>
++    </label>
++  );
++}
++
++export default function NewTrip({ onClose, onLaunched }) {
++  const { data, update, currentSeason } = useData();
++  const refs = data.refs || {};
++
++  // Seed each field with its default, falling back to the first ref option so a
++  // select is never empty (matches how the original's <option> lists render).
++  const [f, setF] = useState(() => ({
++    ...DEFAULTS,
++    waterType: refs.waterTypes?.[0] || '',
++    water: refs.waters?.[0] || '',
++    launch: refs.launches?.[0] || '',
++    boat: refs.boats?.[0] || '',
++    method: refs.methods?.[0] || '',
++    techniqueFocus: refs.techniqueFocus?.[0] || '',
++    target: refs.species?.[0] || '',
++    clarity: refs.clarity?.[0] || '',
++    spawnPhase: refs.spawnPhase?.[0] || '',
++    sky: refs.sky?.[0] || '',
++    moon: refs.moon?.[0] || '',
++  }));
++
++  const set = (key, value) => setF((prev) => ({ ...prev, [key]: value }));
++
++  // Ported from saveSession(): deactivate other trips in this season, push the
++  // new active session, mark it dirty for sync, and drop into it.
++  const launch = () => {
++    const cs = currentSeason();
++    if (cs?.archived &&
++        !window.confirm('This season is archived. Start a trip here anyway?\n\nUsually you should start a new season first from Rig Box.')) {
++      return;
++    }
++
++    const session = {
++      id: uid(),
++      season: data.activeSeason,
++      active: true,
++      title: f.title,
++      name: f.title,
++      date: new Date().toISOString().slice(0, 10),
++      start: new Date().toTimeString().slice(0, 5),
++      end: '',
++      country: f.country,
++      state: f.state || 'PA',
++      waterType: f.waterType,
++      water: f.water,
++      launch: f.launch,
++      area: f.area,
++      partners: String(f.partners).split(',').map((x) => x.trim()).filter(Boolean),
++      boat: f.boat,
++      method: f.method,
++      techniqueFocus: f.techniqueFocus,
++      weather: f.weather,
++      clarity: f.clarity,
++      waterTemp: +f.temp || '',
++      airTemp: +f.air || '',
++      flow: f.flow,
++      wind: '',
++      sky: f.sky,
++      target: f.target,
++      spawnPhase: f.spawnPhase,
++      moon: f.moon,
++      notes: f.notes,
++      updated_at: new Date().toISOString(),
++      _dirty: true,
++    };
++
++    update((prev) => ({
++      ...prev,
++      sessions: [
++        ...prev.sessions.map((s) =>
++          s.season === prev.activeSeason ? { ...s, active: false } : s
++        ),
++        session,
++      ],
++    }));
++    onClose();
++    if (onLaunched) onLaunched(session);
++  };
++
++  return (
++    <div className="sheet-backdrop active" onClick={onClose}>
++      <div className="sheet" onClick={(e) => e.stopPropagation()}>
++        <div className="sheet-head">
++          <div>
++            <h2>Where are we headed?</h2>
++            <div className="muted">Trip context makes on-water logging effortless.</div>
++          </div>
++          <button className="btn small" onClick={onClose}>Close</button>
++        </div>
++
++        <div className="sheet-body">
++          <div className="details">
++            <label>
++              Trip Title
++              <input value={f.title} onChange={(e) => set('title', e.target.value)} />
++            </label>
++            <Select label="Country" value={f.country} onChange={(v) => set('country', v)} options={refs.countries} />
++            <label>
++              State / Province
++              <input value={f.state} onChange={(e) => set('state', e.target.value)} />
++            </label>
++            <Select label="Water Type" value={f.waterType} onChange={(v) => set('waterType', v)} options={refs.waterTypes} />
++            <Select label="Water" value={f.water} onChange={(v) => set('water', v)} options={refs.waters} />
++            <Select label="Launch / Ramp" value={f.launch} onChange={(v) => set('launch', v)} options={refs.launches} />
++            <label>
++              Area
++              <input value={f.area} onChange={(e) => set('area', e.target.value)} />
++            </label>
++            <label>
++              Partner / Crew
++              <input
++                value={f.partners}
++                onChange={(e) => set('partners', e.target.value)}
++                list="partnerList"
++              />
++              <datalist id="partnerList">
++                {(refs.partners || []).map((x) => <option key={x} value={x} />)}
++              </datalist>
++            </label>
++            <Select label="Boat / Method" value={f.boat} onChange={(v) => set('boat', v)} options={refs.boats} />
++            <Select label="Fishing Method" value={f.method} onChange={(v) => set('method', v)} options={refs.methods} />
++            <Select label="Technique Focus" value={f.techniqueFocus} onChange={(v) => set('techniqueFocus', v)} options={refs.techniqueFocus} />
++            <Select label="Target Species" value={f.target} onChange={(v) => set('target', v)} options={refs.species} />
++            <Select label="Weather" value={f.weather} onChange={(v) => set('weather', v)} options={refs.weather} />
++            <Select label="Water Clarity" value={f.clarity} onChange={(v) => set('clarity', v)} options={refs.clarity} />
++            <Select label="Flow / Current" value={f.flow} onChange={(v) => set('flow', v)} options={refs.flow} />
++            <Select label="Spawn / Seasonal Phase" value={f.spawnPhase} onChange={(v) => set('spawnPhase', v)} options={refs.spawnPhase} />
++            <label>
++              Water Temp
++              <input type="number" value={f.temp} onChange={(e) => set('temp', e.target.value)} />
++            </label>
++            <label>
++              Air Temp
++              <input type="number" value={f.air} onChange={(e) => set('air', e.target.value)} />
++            </label>
++            <Select label="Sky" value={f.sky} onChange={(v) => set('sky', v)} options={refs.sky} />
++            <Select label="Moon" value={f.moon} onChange={(v) => set('moon', v)} options={refs.moon} />
++            <textarea value={f.notes} onChange={(e) => set('notes', e.target.value)} />
++          </div>
++        </div>
++
++        <div className="sheet-actions">
++          <button className="btn" onClick={onClose}>Cancel</button>
++          <button className="btn" disabled title="Coming soon in the new build">
++            📋 Save as Template
++          </button>
++          <button className="btn primary" onClick={launch}>Launch Trip</button>
++        </div>
++      </div>
++    </div>
++  );
++}
+diff --git a/src/components/TackleBox.jsx b/src/components/TackleBox.jsx
+new file mode 100644
+index 0000000..4214033
+--- /dev/null
++++ b/src/components/TackleBox.jsx
+@@ -0,0 +1,102 @@
++import { useState } from 'react';
++import { useData } from '../lib/DataContext.jsx';
++import {
++  MAX_LOADOUTS,
++  ensureLoadouts,
++  loadoutIcon,
++  loadoutName,
++} from '../lib/loadouts.js';
++import LoadoutEditor from './LoadoutEditor.jsx';
++
++// Tackle Box — the Quick Rigs / Loadouts manager, ported from renderTackle() +
++// loadoutManagerHTML(). Same wording and the same 5-slot grid with Edit/Delete
++// and empty "Add a Rig" slots. Confidence-bait profiles and lure/color bars are
++// stats panels that come with the River Intelligence port; this screen ships
++// the loadouts feature (create, edit, delete, sync via profile).
++export default function TackleBox({ onToast }) {
++  const { data, updateProfile } = useData();
++  const outs = ensureLoadouts(data);
++  const [editing, setEditing] = useState(null); // slot index being edited, or null
++
++  const remove = (i) => {
++    const l = outs[i];
++    if (!l) return;
++    if (!window.confirm('Delete “' + (l.name || 'this loadout') + '”?')) return;
++    updateProfile((prev) => {
++      const arr = (prev.loadouts || []).slice();
++      arr.splice(i, 1);
++      return { ...prev, loadouts: arr };
++    });
++    if (onToast) onToast('Loadout removed');
++  };
++
++  const slots = [];
++  for (let i = 0; i < MAX_LOADOUTS; i++) {
++    const l = outs[i];
++    if (l) {
++      slots.push(
++        <div className="loadout-card" key={l.id || i}>
++          <div className="loadout-card-head">
++            <span className="loadout-chip-icon big">{loadoutIcon(l)}</span>
++            <div>
++              <strong>{loadoutName(l, i)}</strong>
++              {l.rod ? <small className="muted">{l.rod}</small> : null}
++            </div>
++          </div>
++          <div className="loadout-fields">
++            <span className="mini-pill">{l.category || '—'}</span>
++            <span className="mini-pill">{l.lure || '—'}</span>
++            <span className="mini-pill">{l.color || '—'}</span>
++            <span className="mini-pill">{l.presentation || '—'}</span>
++            <span className="mini-pill">{l.depth || '—'}</span>
++          </div>
++          <div className="loadout-card-actions">
++            <button className="btn small" onClick={() => setEditing(i)}>Edit</button>
++            <button className="btn small danger" onClick={() => remove(i)}>Delete</button>
++          </div>
++        </div>
++      );
++    } else {
++      slots.push(
++        <button className="loadout-card empty" key={`empty-${i}`} onClick={() => setEditing(i)}>
++          <span className="loadout-empty-icon">➕</span>
++          <strong>Add a Rig</strong>
++          <small className="muted">Slot {i + 1} of {MAX_LOADOUTS}</small>
++        </button>
++      );
++    }
++  }
++
++  return (
++    <>
++      <div className="grid">
++        <div className="glass panel span12 memory-card">
++          <span className="eyebrow">Tackle Box</span>
++          <h2 className="chapter-title">Every lure has a story.</h2>
++          <p className="story">
++            Confidence baits, forgotten heroes, Canada spoons, river tubes — your
++            gear becomes part of the memory system.
++          </p>
++        </div>
++
++        <div className="glass panel span12">
++          <div className="livewell-toolbar">
++            <div>
++              <h3>Quick Rigs — Loadouts</h3>
++              <p className="muted">
++                Set up to 5 rigs. When you land a fish, tap a rig to fill lure,
++                color, presentation, and depth in one tap.
++              </p>
++            </div>
++            <span className="chip gold">{outs.length}/5 slots</span>
++          </div>
++          <div className="loadout-grid">{slots}</div>
++        </div>
++      </div>
++
++      {editing !== null && (
++        <LoadoutEditor index={editing} onClose={() => setEditing(null)} />
++      )}
++    </>
++  );
++}
+diff --git a/src/lib/DataContext.jsx b/src/lib/DataContext.jsx
+index 4d87bd8..eda3621 100644
+--- a/src/lib/DataContext.jsx
++++ b/src/lib/DataContext.jsx
+@@ -1,4 +1,6 @@
+-import { createContext, useContext, useState, useEffect, useCallback, useMemo } from 'react';
++import { createContext, useContext, useState, useEffect, useCallback, useRef, useMemo } from 'react';
++import { normalizeRefs } from './refs.js';
++import { syncNow, migrateIfNeeded } from './sync.js';
+ 
+ // Same storage key as the single-file app, so the React build reads the exact
+ // same local journal — no data migration needed on the same device.
+@@ -27,9 +29,16 @@ function emptyData() {
+ function loadLocal() {
+   try {
+     const raw = localStorage.getItem(KEY);
+-    return raw ? JSON.parse(raw) : emptyData();
++    const d = raw ? JSON.parse(raw) : emptyData();
++    // Offline-first: guarantee the reference option lists exist (species, lures,
++    // colors, etc.) even on a brand-new device, so the catch-flow pickers are
++    // never empty before a cloud pull. Mirrors normalizeRefs() in the original.
++    d.refs = normalizeRefs(d);
++    return d;
+   } catch {
+-    return emptyData();
++    const d = emptyData();
++    d.refs = normalizeRefs(d);
++    return d;
+   }
+ }
+ 
+@@ -37,23 +46,86 @@ const DataContext = createContext(null);
+ 
+ export function DataProvider({ children }) {
+   const [data, setData] = useState(loadLocal);
++  // Whether a cloud session exists — set by App once auth resolves. Sync only
++  // runs when signed in; offline-first means everything works without it.
++  const signedInRef = useRef(false);
++  const pushTimer = useRef(null);
++  const syncingRef = useRef(false);
++  // Always hold the latest data for async sync callbacks without re-binding.
++  const dataRef = useRef(data);
++  useEffect(() => { dataRef.current = data; }, [data]);
+ 
+   // Persist to localStorage on every change (offline source of truth).
+   useEffect(() => {
+     try { localStorage.setItem(KEY, JSON.stringify(data)); } catch { /* quota */ }
+   }, [data]);
+ 
+-  // Merge a partial update and re-render. Accepts either an object or an
+-  // updater function, like setState.
++  // Replace the whole data object (used after a cloud sync hydrates local).
++  const replaceData = useCallback((next) => setData(next), []);
++
++  // Run one full push+pull cycle and fold the merged result back into state.
++  // Offline-first + safe: never throws into the UI, never blocks; if it fails
++  // the local journal keeps working and the dirty flags stay set for retry.
++  const runSync = useCallback(async () => {
++    if (!signedInRef.current || !navigator.onLine) return;
++    if (syncingRef.current) return;
++    syncingRef.current = true;
++    try {
++      const merged = await syncNow(dataRef.current);
++      if (merged) setData(merged);
++    } catch {
++      /* transient / offline — local still authoritative */
++    } finally {
++      syncingRef.current = false;
++    }
++  }, []);
++
++  // Debounced push — call after a mutation without hammering the network.
++  // Mirrors the original FishSync.scheduleSync().
++  const scheduleSync = useCallback((ms = 2000) => {
++    if (!signedInRef.current) return;
++    clearTimeout(pushTimer.current);
++    pushTimer.current = setTimeout(runSync, ms);
++  }, [runSync]);
++
++  // Merge a partial update and re-render, then schedule a background push so
++  // local edits reach the cloud. Accepts an object or updater fn, like setState.
+   const update = useCallback((patch) => {
++    setData((prev) => (typeof patch === 'function' ? patch(prev) : { ...prev, ...patch }));
++    scheduleSync();
++  }, [scheduleSync]);
++
++  // Update profile-synced fields (loadouts, trip templates, refs, sound, mode,
++  // active season) and flag the profile dirty so the next push includes it.
++  // Mirrors the original's touchProfile() being called alongside these edits.
++  const updateProfile = useCallback((patch) => {
+     setData((prev) => {
+-      const next = typeof patch === 'function' ? patch(prev) : { ...prev, ...patch };
+-      return next;
++      const merged = typeof patch === 'function' ? patch(prev) : { ...prev, ...patch };
++      return { ...merged, _profileDirty: true, _profileUpdatedAt: new Date().toISOString() };
+     });
+-  }, []);
++    scheduleSync();
++  }, [scheduleSync]);
+ 
+-  // Replace the whole data object (used after a cloud pull hydrates local).
+-  const replaceData = useCallback((next) => setData(next), []);
++  // Called by App when auth state settles. On first sign-in this seeds the
++  // server from an existing local device (migrateIfNeeded) then runs a sync.
++  const setSignedIn = useCallback(async (isIn) => {
++    signedInRef.current = isIn;
++    if (!isIn) return;
++    try {
++      const seeded = await migrateIfNeeded(dataRef.current);
++      if (seeded) setData(seeded); // dirty flags set → next sync pushes it all up
++    } catch { /* ignore; a normal sync still runs below */ }
++    runSync();
++  }, [runSync]);
++
++  // Safety nets that mirror the original: sync when the network returns, and a
++  // periodic top-up while the app is open.
++  useEffect(() => {
++    const onOnline = () => runSync();
++    window.addEventListener('online', onOnline);
++    const id = setInterval(() => { if (navigator.onLine) runSync(); }, 60000);
++    return () => { window.removeEventListener('online', onOnline); clearInterval(id); };
++  }, [runSync]);
+ 
+   // ---- selectors (ported 1:1 from the single-file app) ----
+   const selectors = useMemo(() => {
+@@ -74,7 +146,10 @@ export function DataProvider({ children }) {
+     return { seasonSessions, currentSeason, activeSession, catchesForSession, seasonCatches, sessionFor, biggest, avg };
+   }, [data]);
+ 
+-  const value = useMemo(() => ({ data, update, replaceData, ...selectors }), [data, update, replaceData, selectors]);
++  const value = useMemo(
++    () => ({ data, update, updateProfile, replaceData, setSignedIn, scheduleSync, runSync, ...selectors }),
++    [data, update, updateProfile, replaceData, setSignedIn, scheduleSync, runSync, selectors]
++  );
+ 
+   return <DataContext.Provider value={value}>{children}</DataContext.Provider>;
+ }
+diff --git a/src/lib/fishDisplay.js b/src/lib/fishDisplay.js
+new file mode 100644
+index 0000000..7cd688b
+--- /dev/null
++++ b/src/lib/fishDisplay.js
+@@ -0,0 +1,37 @@
++// Display helpers ported 1:1 from the single-file app's index.html so the React
++// build renders fish cards and catch cards with the exact same look and wording.
++// Keep these in sync with the originals if the legacy app ever changes them.
++
++// esc() — original escapes user text before it goes into innerHTML. In React,
++// JSX already escapes interpolated values, so components don't need esc() for
++// rendering. It's exported only for any string-building that still needs it.
++export function esc(s) {
++  return String(s ?? '').replace(/[&<>'"]/g, (m) => (
++    { '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;' }[m]
++  ));
++}
++
++export function ratingStars(n = 0) {
++  n = Math.max(0, Math.min(5, Math.round(+n || 0)));
++  return '★★★★★'.slice(0, n) + '☆☆☆☆☆'.slice(0, 5 - n);
++}
++
++export function fishEmoji(species = '') {
++  const x = String(species).toLowerCase();
++  if (x.includes('pike') || x.includes('musk')) return '🐊';
++  if (x.includes('trout')) return '🐟';
++  if (x.includes('walleye')) return '👁️';
++  if (x.includes('catfish')) return '🐈';
++  return '🐟';
++}
++
++export function speciesClass(species = '') {
++  const x = String(species).toLowerCase();
++  if (x.includes('walleye') || x.includes('sauger')) return 'species-walleye';
++  if (x.includes('pike') || x.includes('musk') || x.includes('pickerel')) return 'species-pike';
++  if (x.includes('trout') || x.includes('salmon')) return 'species-trout';
++  if (x.includes('bass')) return 'species-bass';
++  if (x.includes('perch') || x.includes('bluegill') || x.includes('crappie') || x.includes('sunfish')) return 'species-panfish';
++  if (x.includes('catfish') || x.includes('bullhead')) return 'species-catfish';
++  return '';
++}
+diff --git a/src/lib/loadouts.js b/src/lib/loadouts.js
+new file mode 100644
+index 0000000..2e27ab0
+--- /dev/null
++++ b/src/lib/loadouts.js
+@@ -0,0 +1,28 @@
++// Loadout (quick-rig) helpers — ported from the single-file app's Tackle Box.
++// Up to 5 saved rigs; tapping one when landing a fish fills the rig fields.
++// Loadouts live on the profile and sync via the profiles table.
++
++export const MAX_LOADOUTS = 5;
++export const LOADOUT_FIELDS = ['category', 'lure', 'color', 'presentation', 'depth'];
++
++export function ensureLoadouts(data) {
++  return Array.isArray(data.loadouts) ? data.loadouts : [];
++}
++
++export function loadoutIcon(l) {
++  const cat = String(l.category || '').toLowerCase();
++  if (cat.includes('top') || cat.includes('popper') || cat.includes('walk') || cat.includes('buzz')) return '🌊';
++  if (cat.includes('jig') || cat.includes('ned') || cat.includes('tube') || cat.includes('drop') || cat.includes('soft')) return '🪱';
++  if (cat.includes('crank') || cat.includes('jerk') || cat.includes('lipless') || cat.includes('square')) return '🎣';
++  if (cat.includes('spinner') || cat.includes('chatter') || cat.includes('blade') || cat.includes('spoon')) return '✨';
++  if (cat.includes('fly') || cat.includes('nymph') || cat.includes('streamer')) return '🪶';
++  return '🧰';
++}
++
++export function loadoutSummary(l) {
++  return [l.color, l.lure].filter(Boolean).join(' ') || 'Empty rig';
++}
++
++export function loadoutName(l, i) {
++  return l.name || ('Loadout ' + (i + 1));
++}
+diff --git a/src/lib/photos.js b/src/lib/photos.js
+new file mode 100644
+index 0000000..96b278d
+--- /dev/null
++++ b/src/lib/photos.js
+@@ -0,0 +1,245 @@
++// FishSlayR Photo Engine — ported from the single-file app's photo layer.
++// Hybrid storage: the full-res display Blob lives in IndexedDB; a small base64
++// thumbnail rides on the catch object for instant rendering. Reads the EXIF
++// timestamp + best-effort GPS, with a live-geolocation fallback. Self-contained,
++// no external libraries. Works on iOS Safari + Android Chrome.
++
++const PHOTO_DB = 'fishslayr_photos';
++const PHOTO_STORE = 'catchPhotos';
++const PHOTO_DB_VER = 1;
++
++let _photoDbPromise = null;
++function photoDB() {
++  if (_photoDbPromise) return _photoDbPromise;
++  _photoDbPromise = new Promise((res, rej) => {
++    if (!('indexedDB' in window)) { rej(new Error('no-indexeddb')); return; }
++    const req = indexedDB.open(PHOTO_DB, PHOTO_DB_VER);
++    req.onupgradeneeded = (e) => {
++      const db = e.target.result;
++      if (!db.objectStoreNames.contains(PHOTO_STORE)) db.createObjectStore(PHOTO_STORE);
++    };
++    req.onsuccess = (e) => res(e.target.result);
++    req.onerror = (e) => rej(e.target.error || new Error('idb-open-failed'));
++  });
++  return _photoDbPromise;
++}
++
++export async function photoPut(catchId, blob) {
++  try {
++    const db = await photoDB();
++    return await new Promise((res, rej) => {
++      const tx = db.transaction(PHOTO_STORE, 'readwrite');
++      tx.objectStore(PHOTO_STORE).put(blob, catchId);
++      tx.oncomplete = () => res(true);
++      tx.onerror = () => rej(tx.error);
++    });
++  } catch (e) { console.warn('photoPut failed', e); return false; }
++}
++
++export async function photoGet(catchId) {
++  try {
++    const db = await photoDB();
++    return await new Promise((res, rej) => {
++      const tx = db.transaction(PHOTO_STORE, 'readonly');
++      const r = tx.objectStore(PHOTO_STORE).get(catchId);
++      r.onsuccess = () => res(r.result || null);
++      r.onerror = () => rej(r.error);
++    });
++  } catch (e) { console.warn('photoGet failed', e); return null; }
++}
++
++export async function photoClearAll() {
++  try {
++    const db = await photoDB();
++    return await new Promise((res) => {
++      const tx = db.transaction(PHOTO_STORE, 'readwrite');
++      tx.objectStore(PHOTO_STORE).clear();
++      tx.oncomplete = () => res(true);
++      tx.onerror = () => res(false);
++    });
++  } catch (e) { return false; }
++}
++
++export async function photoDelete(catchId) {
++  try {
++    const db = await photoDB();
++    return await new Promise((res) => {
++      const tx = db.transaction(PHOTO_STORE, 'readwrite');
++      tx.objectStore(PHOTO_STORE).delete(catchId);
++      tx.oncomplete = () => res(true);
++      tx.onerror = () => res(false);
++    });
++  } catch (e) { return false; }
++}
++
++// ---- image downscale to thumbnail (base64) + display-res blob ----
++function loadImageFromFile(file) {
++  return new Promise((res, rej) => {
++    const url = URL.createObjectURL(file);
++    const img = new Image();
++    img.onload = () => res({ img, url });
++    img.onerror = () => { URL.revokeObjectURL(url); rej(new Error('image-decode-failed')); };
++    img.src = url;
++  });
++}
++function drawScaled(img, maxDim) {
++  let { naturalWidth: w, naturalHeight: h } = img;
++  const scale = Math.min(1, maxDim / Math.max(w, h));
++  w = Math.round(w * scale); h = Math.round(h * scale);
++  const cvs = document.createElement('canvas');
++  cvs.width = w; cvs.height = h;
++  cvs.getContext('2d').drawImage(img, 0, 0, w, h);
++  return cvs;
++}
++function dataURLtoBlob(dataURL) {
++  const [head, body] = dataURL.split(',');
++  const mime = (head.match(/:(.*?);/) || [])[1] || 'image/jpeg';
++  const bin = atob(body);
++  const arr = new Uint8Array(bin.length);
++  for (let i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i);
++  return new Blob([arr], { type: mime });
++}
++function canvasToBlob(cvs, type, quality) {
++  return new Promise((res) => {
++    if (cvs.toBlob) cvs.toBlob((b) => res(b), type, quality);
++    else res(dataURLtoBlob(cvs.toDataURL(type, quality)));
++  });
++}
++function blobToDataURL(blob) {
++  return new Promise((res, rej) => {
++    const r = new FileReader();
++    r.onload = () => res(r.result);
++    r.onerror = () => rej(r.error);
++    r.readAsDataURL(blob);
++  });
++}
++
++// ---- minimal EXIF reader: DateTimeOriginal (0x9003) + GPS ----
++function readExif(file) {
++  return new Promise((resolve) => {
++    const slice = file.slice(0, 256 * 1024); // EXIF lives in the first bytes
++    const r = new FileReader();
++    r.onload = () => { try { resolve(parseExif(new DataView(r.result))); } catch { resolve({}); } };
++    r.onerror = () => resolve({});
++    r.readAsArrayBuffer(slice);
++  });
++}
++function parseExif(view) {
++  const out = {};
++  if (view.byteLength < 4 || view.getUint16(0) !== 0xFFD8) return out; // not JPEG
++  let offset = 2;
++  while (offset < view.byteLength) {
++    if (view.getUint16(offset) === 0xFFE1) return parseApp1(view, offset + 4) || out; // APP1
++    if ((view.getUint16(offset) & 0xFF00) !== 0xFF00) break;
++    offset += 2 + view.getUint16(offset + 2);
++  }
++  return out;
++}
++function parseApp1(view, start) {
++  const out = {};
++  if (view.getUint32(start) !== 0x45786966) return out; // "Exif"
++  const tiff = start + 6;
++  const little = view.getUint16(tiff) === 0x4949;
++  const g16 = (o) => view.getUint16(o, little);
++  const g32 = (o) => view.getUint32(o, little);
++  if (view.getUint16(tiff + 2, little) !== 0x002A) return out;
++  const ifd0 = tiff + g32(tiff + 4);
++  let exifIFD = null, gpsIFD = null;
++  const readDir = (dirStart) => {
++    const n = g16(dirStart); const entries = [];
++    for (let i = 0; i < n; i++) {
++      const e = dirStart + 2 + i * 12;
++      entries.push({ tag: g16(e), type: g16(e + 2), count: g32(e + 4), valOff: e + 8 });
++    }
++    return entries;
++  };
++  const strVal = (e) => {
++    const o = e.count > 4 ? tiff + g32(e.valOff) : e.valOff;
++    let s = '';
++    for (let i = 0; i < e.count - 1; i++) s += String.fromCharCode(view.getUint8(o + i));
++    return s;
++  };
++  const ratVal = (o) => { const num = g32(o), den = g32(o + 4); return den ? num / den : 0; };
++  try {
++    readDir(ifd0).forEach((e) => {
++      if (e.tag === 0x8769) exifIFD = tiff + g32(e.valOff);
++      if (e.tag === 0x8825) gpsIFD = tiff + g32(e.valOff);
++    });
++    if (exifIFD) {
++      readDir(exifIFD).forEach((e) => {
++        if (e.tag === 0x9003 || e.tag === 0x9004) { const s = strVal(e); if (s && !out.dateTime) out.dateTime = s; }
++      });
++    }
++    if (gpsIFD) {
++      let latRef = 'N', lonRef = 'E', lat = null, lon = null;
++      readDir(gpsIFD).forEach((e) => {
++        if (e.tag === 0x0001) latRef = String.fromCharCode(view.getUint8(e.valOff));
++        if (e.tag === 0x0003) lonRef = String.fromCharCode(view.getUint8(e.valOff));
++        if (e.tag === 0x0002) { const o = tiff + g32(e.valOff); lat = ratVal(o) + ratVal(o + 8) / 60 + ratVal(o + 16) / 3600; }
++        if (e.tag === 0x0004) { const o = tiff + g32(e.valOff); lon = ratVal(o) + ratVal(o + 8) / 60 + ratVal(o + 16) / 3600; }
++      });
++      if (lat != null && lon != null) {
++        out.lat = (latRef === 'S' ? -1 : 1) * lat;
++        out.lon = (lonRef === 'W' ? -1 : 1) * lon;
++      }
++    }
++  } catch { /* best-effort */ }
++  return out;
++}
++// EXIF datetime "YYYY:MM:DD HH:MM:SS" -> { date:'YYYY-MM-DD', time:'HH:MM' }
++export function exifDateTimeParts(dt) {
++  const m = String(dt || '').match(/^(\d{4}):(\d{2}):(\d{2})\s+(\d{2}):(\d{2})/);
++  if (!m) return null;
++  return { date: `${m[1]}-${m[2]}-${m[3]}`, time: `${m[4]}:${m[5]}` };
++}
++
++// ---- live geolocation (reliable fallback when EXIF GPS is stripped) ----
++export function getLiveLocation(timeoutMs = 8000) {
++  return new Promise((res) => {
++    if (!('geolocation' in navigator)) { res(null); return; }
++    navigator.geolocation.getCurrentPosition(
++      (p) => res({ lat: p.coords.latitude, lon: p.coords.longitude, acc: p.coords.accuracy }),
++      () => res(null),
++      { enableHighAccuracy: true, timeout: timeoutMs, maximumAge: 60000 }
++    );
++  });
++}
++
++// ---- capture: turn a chosen file into thumb + display blob + autofill info ----
++// Returns a patch to merge into the catch draft (thumbnail, display blob for
++// IndexedDB, meta, autofilled time, GPS) plus a human-readable status. Ported
++// from handleCatchPhoto(); the React caller handles the state update + render.
++export async function processCatchPhoto(file, session = {}) {
++  const [exif, loaded] = await Promise.all([readExif(file), loadImageFromFile(file)]);
++  const { img, url } = loaded;
++
++  const dispBlob = await canvasToBlob(drawScaled(img, 1600), 'image/jpeg', 0.82);
++  const thumbBlob = await canvasToBlob(drawScaled(img, 640), 'image/jpeg', 0.72);
++  const thumbDataURL = await blobToDataURL(thumbBlob);
++  URL.revokeObjectURL(url);
++
++  const patch = {
++    _photoDispBlob: dispBlob,
++    photoThumb: thumbDataURL,
++    photoMeta: { w: img.naturalWidth, h: img.naturalHeight, ts: Date.now() },
++  };
++  const filled = [];
++
++  const parts = exifDateTimeParts(exif.dateTime);
++  if (parts) {
++    patch.time = parts.time;
++    filled.push('time ' + parts.time);
++    if (session && session.date && parts.date && session.date !== parts.date) {
++      patch._photoDateNote = `Photo dated ${parts.date} (trip is ${session.date})`;
++    }
++  }
++  if (exif.lat != null && exif.lon != null) {
++    patch.photoLat = exif.lat;
++    patch.photoLon = exif.lon;
++    patch.photoGeoSource = 'photo';
++    filled.push('GPS from photo');
++  }
++
++  const status = `✓ Photo attached${filled.length ? ' — autofilled ' + filled.join(', ') : ''}`;
++  return { patch, status };
++}
+diff --git a/src/lib/refs.js b/src/lib/refs.js
+new file mode 100644
+index 0000000..c782410
+--- /dev/null
++++ b/src/lib/refs.js
+@@ -0,0 +1,537 @@
++// Reference option lists — ported verbatim from DEFAULT_REFS in the single-file
++// app's index.html. These populate the catch-flow pickers (species, lures,
++// colors, structure, etc). Kept as one source of truth so the React build shows
++// the exact same options the original does.
++export const DEFAULT_REFS = {
++  "species": [
++    "Smallmouth Bass",
++    "Largemouth Bass",
++    "Spotted Bass",
++    "Rock Bass",
++    "Striped Bass",
++    "Hybrid Striped Bass",
++    "White Bass",
++    "Brown Trout",
++    "Rainbow Trout",
++    "Brook Trout",
++    "Lake Trout",
++    "Tiger Trout",
++    "Golden Rainbow Trout",
++    "Walleye",
++    "Sauger",
++    "Saugeye",
++    "Northern Pike",
++    "Muskellunge",
++    "Tiger Muskie",
++    "Chain Pickerel",
++    "Yellow Perch",
++    "Bluegill",
++    "Pumpkinseed",
++    "Redbreast Sunfish",
++    "Green Sunfish",
++    "Black Crappie",
++    "White Crappie",
++    "Channel Catfish",
++    "Flathead Catfish",
++    "Blue Catfish",
++    "Bullhead",
++    "Common Carp",
++    "Grass Carp",
++    "Bowfin",
++    "Freshwater Drum",
++    "Longnose Gar",
++    "White Sucker",
++    "Fallfish",
++    "Cisco",
++    "Burbot"
++  ],
++  "lureCategories": [
++    "Soft Plastic",
++    "Tube",
++    "Ned Rig",
++    "Jig",
++    "Hair Jig",
++    "Marabou Jig",
++    "Spinnerbait",
++    "Buzzbait",
++    "Chatterbait",
++    "Inline Spinner",
++    "Crankbait",
++    "Squarebill",
++    "Deep Crank",
++    "Lipless Crank",
++    "Jerkbait",
++    "Topwater",
++    "Popper",
++    "Walking Bait",
++    "Prop Bait",
++    "Wake Bait",
++    "Swimbait",
++    "Glide Bait",
++    "Spoon",
++    "Blade Bait",
++    "Ice Jig",
++    "Drop Shot",
++    "Carolina Rig",
++    "Texas Rig",
++    "Live Bait",
++    "Fly",
++    "Dry Fly",
++    "Nymph",
++    "Streamer"
++  ],
++  "lures": [
++    "Tube",
++    "Ned Rig",
++    "TRD",
++    "Senko",
++    "Stick Worm",
++    "Finesse Worm",
++    "Ribbon Tail Worm",
++    "Creature Bait",
++    "Craw",
++    "Paddle Tail",
++    "Fluke",
++    "Grub",
++    "Football Jig",
++    "Finesse Jig",
++    "Swim Jig",
++    "Hair Jig",
++    "Marabou Jig",
++    "Spinnerbait",
++    "Buzzbait",
++    "Chatterbait",
++    "Inline Spinner",
++    "Squarebill",
++    "Medium Crank",
++    "Deep Crank",
++    "Lipless Crank",
++    "Jerkbait",
++    "Husky Jerk",
++    "Rapala Original Floater",
++    "Whopper Plopper",
++    "Popper",
++    "Walking Bait",
++    "Prop Bait",
++    "Wake Bait",
++    "Paddle Tail Swimbait",
++    "Glide Bait",
++    "Spoon",
++    "Williams Wabler",
++    "Little Cleo Spoon",
++    "Bucktail Jig",
++    "Blade Bait",
++    "Drop Shot",
++    "Minnow",
++    "Shiner",
++    "Leech",
++    "Nightcrawler",
++    "Crayfish",
++    "Egg Sac",
++    "Streamer",
++    "Dry Fly",
++    "Nymph"
++  ],
++  "colors": [
++    "Green Pumpkin",
++    "Green Pumpkin Purple",
++    "Green Pumpkin Orange",
++    "Watermelon",
++    "Watermelon Red",
++    "Watermelon Gold",
++    "Black/Blue",
++    "Black Neon",
++    "Black",
++    "White",
++    "Pearl",
++    "Bone",
++    "Smoke",
++    "Motor Oil",
++    "June Bug",
++    "PB&J",
++    "Okeechobee Craw",
++    "Natural Craw",
++    "Brown Craw",
++    "Red Craw",
++    "Craw",
++    "Bluegill",
++    "Shad",
++    "Sexy Shad",
++    "Ghost Minnow",
++    "Natural Shad",
++    "Alewife",
++    "Perch",
++    "Firetiger",
++    "Chartreuse",
++    "Chartreuse White",
++    "Orange",
++    "Pink",
++    "Purple",
++    "Copper",
++    "Gold",
++    "Silver",
++    "Chrome",
++    "Blue Chrome",
++    "Electric Blue",
++    "Morning Dawn",
++    "Black Silver",
++    "Brown Orange",
++    "White Red",
++    "Glow",
++    "UV Green",
++    "UV Pink"
++  ],
++  "waters": [
++    "Susquehanna River",
++    "Juniata River",
++    "Yellow Breeches",
++    "Conodoguinet Creek",
++    "Swatara Creek",
++    "Shermans Creek",
++    "Penns Creek",
++    "Spring Creek",
++    "Pine Creek",
++    "West Branch Susquehanna",
++    "Raystown Lake",
++    "Pinchot Lake",
++    "Long Pine Run Reservoir",
++    "Lake Marburg",
++    "Cowanesque Lake",
++    "Beltzville Lake",
++    "Lake Wallenpaupack",
++    "Lake Erie",
++    "Lake Ontario",
++    "Lake of the Woods (Ontario)",
++    "Lac Seul (Ontario)",
++    "Eagle Lake (Ontario)",
++    "Rainy Lake (Ontario)",
++    "St. Lawrence River",
++    "French River",
++    "Georgian Bay",
++    "Rideau Lakes",
++    "Kawartha Lakes",
++    "Lake Simcoe",
++    "Lake Nipissing",
++    "Canada Lake Trip",
++    "Local Farm Pond",
++    "Private Pond"
++  ],
++  "partners": [
++    "Solo",
++    "Brian",
++    "Dave",
++    "Dad",
++    "Pops Dave",
++    "Canada Crew",
++    "Jake",
++    "Zach",
++    "Tyler",
++    "Uncle Ron",
++    "Porter",
++    "Crew Trip"
++  ],
++  "methods": [
++    "Boat",
++    "Bass Boat",
++    "Jet Boat",
++    "Aluminum Boat",
++    "Jon Boat",
++    "Canoe",
++    "Solo Canoe",
++    "Kayak",
++    "Fishing Kayak",
++    "Bank",
++    "Dock",
++    "Pier",
++    "Wading",
++    "Float Trip",
++    "Ice Fishing",
++    "Float Tube",
++    "Belly Boat",
++    "Guided Trip"
++  ],
++  "structure": [
++    "Current seam",
++    "Eddy",
++    "Rock ledge",
++    "Boulder",
++    "Chunk rock",
++    "Gravel bar",
++    "Shoal",
++    "Riffle",
++    "Pool",
++    "Dropoff",
++    "Point",
++    "Flat",
++    "Island point",
++    "Creek mouth",
++    "Wing dam",
++    "Dam tailrace",
++    "Bridge piling",
++    "Riprap",
++    "Grass bed",
++    "Milfoil",
++    "Hydrilla",
++    "Pads",
++    "Laydown",
++    "Log jam",
++    "Standing timber",
++    "Brush pile",
++    "Dock",
++    "Undercut bank",
++    "Sand flat",
++    "Mud bottom",
++    "Deep basin",
++    "Reef",
++    "Weed edge"
++  ],
++  "weather": [
++    "Bluebird",
++    "Sunny",
++    "Partly cloudy",
++    "Overcast",
++    "Light rain",
++    "Steady rain",
++    "Thunderstorm",
++    "Fog",
++    "Mist",
++    "Snow",
++    "Windy",
++    "Calm",
++    "Cold front",
++    "Warm front",
++    "Post-front",
++    "Pre-front",
++    "Stable weather",
++    "Changing weather"
++  ],
++  "clarity": [
++    "Crystal clear",
++    "Clear",
++    "Gin clear",
++    "Light stain",
++    "Moderate stain",
++    "Stained",
++    "Muddy",
++    "Chocolate milk"
++  ],
++  "flow": [
++    "Still",
++    "Very slow",
++    "Slow",
++    "Moderate current",
++    "Fast current",
++    "Heavy current",
++    "Flood stage",
++    "Low summer flow",
++    "Rising water",
++    "Falling water",
++    "Normal pool",
++    "Eddy water",
++    "Current seam",
++    "Wind-blown bank"
++  ],
++  "presentation": [
++    "Deadstick",
++    "Drag",
++    "Hop",
++    "Slow roll",
++    "Burn",
++    "Twitch",
++    "Jerk pause",
++    "Walk the dog",
++    "Pop",
++    "Lift drop",
++    "Vertical jig",
++    "Swim",
++    "Drift",
++    "Pendulum",
++    "Skip",
++    "Flip",
++    "Pitch",
++    "Punch",
++    "Yo-yo",
++    "Steady retrieve",
++    "Stop and go",
++    "Bottom bounce",
++    "Troll"
++  ],
++  "depth": [
++    "Surface",
++    "1 ft",
++    "2 ft",
++    "3 ft",
++    "4 ft",
++    "5 ft",
++    "6-8 ft",
++    "9-12 ft",
++    "13-20 ft",
++    "20-40 ft",
++    "40+ ft",
++    "Bottom contact",
++    "Suspended"
++  ],
++  "sky": [
++    "High sun",
++    "Low light",
++    "Sunrise",
++    "Morning fog",
++    "Midday bright",
++    "Evening shade",
++    "Golden hour",
++    "Night",
++    "Moonlit",
++    "Cloud ceiling low"
++  ],
++  "disposition": [
++    "Released",
++    "Kept",
++    "Tournament Livewell",
++    "Lost at boat",
++    "Missed strike"
++  ],
++  "spawnPhase": [
++    "Pre-spawn",
++    "Spawn",
++    "Post-spawn",
++    "Summer pattern",
++    "Fall feed",
++    "Winter pattern",
++    "Ice season"
++  ],
++  "moon": [
++    "New moon",
++    "Waxing crescent",
++    "First quarter",
++    "Waxing gibbous",
++    "Full moon",
++    "Waning gibbous",
++    "Last quarter",
++    "Waning crescent"
++  ],
++  "countries": [
++    "United States",
++    "Canada"
++  ],
++  "waterTypes": [
++    "River",
++    "Creek",
++    "Stream",
++    "Lake",
++    "Reservoir",
++    "Pond",
++    "Great Lake",
++    "Canadian Shield Lake",
++    "Tailrace"
++  ],
++  "launches": [
++    "Unknown / Not Logged",
++    "Home Ramp",
++    "Island Camp Dock",
++    "Public Boat Ramp",
++    "Canoe Launch",
++    "Bank Access",
++    "Camp Dock",
++    "Marina",
++    "Guide Launch"
++  ],
++  "boats": [
++    "Unspecified",
++    "Aluminum Boat",
++    "Bass Boat",
++    "Jet Boat",
++    "Jon Boat",
++    "Canoe",
++    "Solo Canoe",
++    "Fishing Kayak",
++    "Pontoon",
++    "Guide Boat",
++    "Bank / No Boat"
++  ],
++  "techniqueFocus": [
++    "Mixed Bag",
++    "Finesse",
++    "Power Fishing",
++    "Jigging",
++    "Trolling",
++    "Casting Shoreline",
++    "Drifting",
++    "Vertical Jigging",
++    "Topwater",
++    "Deep Water",
++    "Current Seams",
++    "Weed Edges"
++  ],
++  "timeWindows": [
++    "Pre-dawn",
++    "Sunrise",
++    "Morning",
++    "Midday",
++    "Afternoon",
++    "Golden Hour",
++    "Evening",
++    "Night"
++  ],
++  "photoTags": [
++    "Hero Fish",
++    "Crew Photo",
++    "Release Shot",
++    "Boat Shot",
++    "Scenery",
++    "Lure Shot",
++    "Measure Board",
++    "Camp Photo"
++  ]
++};;
++
++// Merge DEFAULT_REFS into a data object's refs, de-duping — ported from
++// normalizeRefs(). Offline-first: guarantees the pickers always have options
++// even on a brand-new device before any cloud pull.
++export function normalizeRefs(data) {
++  const refs = { ...(data.refs || {}) };
++  for (const [k, vals] of Object.entries(DEFAULT_REFS)) {
++    const existing = Array.isArray(refs[k]) ? refs[k] : [];
++    refs[k] = Array.from(new Set([...existing, ...vals]));
++  }
++  return refs;
++}
++
++export function uniq(list) {
++  return Array.from(new Set((list || []).filter(Boolean)));
++}
++
++// Put preferred values first, then the rest — ported from prioritizeOptions().
++export function prioritizeOptions(all, preferred) {
++  const u = uniq(all);
++  const p = uniq(preferred).filter((x) => u.includes(x));
++  return [...p, ...u.filter((x) => !p.includes(x))];
++}
++
++// Quick-pick shortlists, session-aware — ported from popularSpecies/Lures/Colors.
++export function popularSpecies(refs, session = {}) {
++  const target = String(session.target || '').split(/[\/,|]+/).map((x) => x.trim()).filter(Boolean);
++  const base = ['Smallmouth Bass', 'Largemouth Bass', 'Walleye', 'Northern Pike', 'Lake Trout', 'Yellow Perch', 'Rock Bass', 'Channel Catfish'];
++  return prioritizeOptions(refs.species || [], [...target, ...base]).slice(0, 8);
++}
++
++export function popularLures(refs, session = {}) {
++  const lake = String(session.water || '').toLowerCase().includes('lake') || String(session.state || '').toLowerCase().includes('ontario');
++  const base = lake
++    ? ['Jig', 'Leech', 'Minnow', 'Husky Jerk', 'Spoon', 'Williams Wabler', 'Little Cleo Spoon', 'Bucktail Jig']
++    : ['Tube', 'Ned Rig', 'Spinnerbait', 'Squarebill', 'Whopper Plopper', 'Jerkbait', 'Finesse Jig', 'Craw'];
++  return prioritizeOptions(refs.lures || [], base).slice(0, 8);
++}
++
++export function popularColors(refs, session = {}) {
++  const lake = String(session.water || '').toLowerCase().includes('lake') || String(session.state || '').toLowerCase().includes('ontario');
++  const base = lake
++    ? ['Gold', 'Chartreuse', 'Glow', 'Silver', 'Firetiger', 'Perch', 'Natural Shad', 'Orange']
++    : ['Green Pumpkin', 'Craw', 'Black/Blue', 'White', 'Chartreuse', 'Watermelon Red', 'Natural Shad', 'Bone'];
++  return prioritizeOptions(refs.colors || [], base).slice(0, 8);
++}
++
++// Inches formatter for the length step — ported from formatInches().
++export function formatInches(v) {
++  const n = Number(v) || 0;
++  return n.toFixed(2).replace(/\.00$/, '').replace(/0$/, '') + '″';
++}
+diff --git a/src/lib/sync.js b/src/lib/sync.js
+index 59d769b..01c314b 100644
+--- a/src/lib/sync.js
++++ b/src/lib/sync.js
+@@ -1,18 +1,142 @@
+ import { sb } from './supabase.js';
++import { photoGet, photoPut } from './photos.js';
++
++// Cloud sync engine — ported from the single-file app's FishSync IIFE.
++// Offline-first: localStorage is the source of truth; this pushes local dirty
++// records up and pulls newer remote records down, last-write-wins by updated_at.
++// Soft-deletes propagate as `deleted:true` tombstones (never hard-delete locally,
++// or the row just re-syncs back down from the server).
+ 
+ const LAST_PULL_KEY = 'fishslayr.lastPull';
++const PHOTO_BUCKET = 'catch-photos';
++
++function nowISO() { return new Date().toISOString(); }
++
++// ---------------------------------------------------------------------------
++// DIRTY TRACKING
++// Call touch(record) whenever a record is created/edited/deleted. It stamps
++// updated_at and marks the record dirty so the next push sends it. These mutate
++// in place, matching the original; the React data layer persists the change.
++// ---------------------------------------------------------------------------
++export function touch(rec) {
++  if (!rec) return rec;
++  rec.updated_at = nowISO();
++  rec._dirty = true;
++  return rec;
++}
++
++// Mark the singleton profile (refs/sound/mode/activeSeason/loadouts/templates)
++// dirty on the data object.
++export function touchProfile(data) {
++  if (!data) return;
++  data._profileDirty = true;
++  data._profileUpdatedAt = nowISO();
++}
++
++export function markPhotoDirty(rec) {
++  if (rec) rec._photoDirty = true;
++}
++
++// ---------------------------------------------------------------------------
++// MAPPERS  (local record -> table row)
++// The whole record goes into `data` (jsonb); a few columns are promoted for
++// queries. Local-only sync flags are stripped from the payload.
++// ---------------------------------------------------------------------------
++function stripMeta(rec) {
++  const { _dirty, _photoDirty, ...rest } = rec;
++  return rest;
++}
++function seasonRow(s) {
++  return { id: s.id, name: s.name ?? null, archived: !!s.archived,
++           deleted: !!s.deleted, updated_at: s.updated_at || nowISO(), data: stripMeta(s) };
++}
++function sessionRow(s) {
++  return { id: s.id, season: s.season ?? null, active: !!s.active,
++           deleted: !!s.deleted, updated_at: s.updated_at || nowISO(), data: stripMeta(s) };
++}
++function catchRow(c) {
++  return { id: c.id, session_id: c.sessionId ?? null, has_photo: !!c.hasPhoto,
++           deleted: !!c.deleted, updated_at: c.updated_at || nowISO(), data: stripMeta(c) };
++}
++
++// ---------------------------------------------------------------------------
++// PUSH
++// Sends dirty records up. On success the dirty flag is cleared (mutated in
++// place); on error it's kept so the next sync retries. Cleared flags are
++// reported back so the React layer can persist the cleaned records.
++// ---------------------------------------------------------------------------
++async function pushTable(tableName, arr, mapFn) {
++  const dirty = (arr || []).filter((r) => r._dirty);
++  if (!dirty.length) return { pushed: 0 };
++  const rows = dirty.map(mapFn);
++  const { error } = await sb.from(tableName).upsert(rows);
++  if (error) { console.warn(`[sync] push ${tableName} failed`, error); return { pushed: 0, error }; }
++  dirty.forEach((r) => { delete r._dirty; });
++  return { pushed: dirty.length };
++}
++
++async function pushProfile(data) {
++  if (!data._profileDirty) return { pushed: 0 };
++  const row = {
++    version: data.version ?? null,
++    mode: data.mode ?? null,
++    active_season: data.activeSeason ?? null,
++    sound: data.sound ?? null,
++    refs: data.refs ?? null,
++    journal: data.journal ?? null,
++    loadouts: data.loadouts ?? null,
++    trip_templates: data.tripTemplates ?? null,
++    updated_at: data._profileUpdatedAt || nowISO(),
++  };
++  const { error } = await sb.from('profiles').upsert(row, { onConflict: 'user_id' });
++  if (error) { console.warn('[sync] push profile failed', error); return { pushed: 0, error }; }
++  delete data._profileDirty;
++  return { pushed: 1 };
++}
++
++// Upload any dirty catch photos from IndexedDB -> Supabase Storage. On success
++// the _photoDirty flag is cleared (mutated in place). Path: {userId}/{catchId}.jpg
++async function pushPhotos(userId, catches) {
++  const withPhotos = (catches || []).filter((c) => c.hasPhoto && c._photoDirty);
++  for (const c of withPhotos) {
++    try {
++      const blob = await photoGet(c.id);
++      if (!blob) { delete c._photoDirty; continue; }
++      const path = `${userId}/${c.id}.jpg`;
++      const { error } = await sb.storage.from(PHOTO_BUCKET)
++        .upload(path, blob, { upsert: true, contentType: blob.type || 'image/jpeg' });
++      if (error) { console.warn('[sync] photo upload failed', c.id, error); continue; }
++      delete c._photoDirty; // confirmed
++    } catch (e) { console.warn('[sync] photo push error', c.id, e); }
++  }
++}
+ 
+-// Re-attach sync columns onto the stored jsonb payload.
+-function rowToLocal(row) {
+-  return Object.assign({}, row.data, { updated_at: row.updated_at, deleted: row.deleted });
++// Pull any photos we're missing locally (has_photo on server, absent in IDB).
++async function pullPhotos(userId, catches) {
++  const needing = (catches || []).filter((c) => c.hasPhoto);
++  for (const c of needing) {
++    try {
++      const existing = await photoGet(c.id);
++      if (existing) continue;
++      const path = `${userId}/${c.id}.jpg`;
++      const { data: blob, error } = await sb.storage.from(PHOTO_BUCKET).download(path);
++      if (error || !blob) continue;
++      await photoPut(c.id, blob);
++    } catch (e) { console.warn('[sync] photo pull error', c.id, e); }
++  }
++}
++
++// ---------------------------------------------------------------------------
++// PULL  (table row -> local record) — last-write-wins, tombstone-aware.
++// ---------------------------------------------------------------------------
++function rowToLocal(row, extra) {
++  return Object.assign({}, row.data, { updated_at: row.updated_at, deleted: row.deleted }, extra || {});
+ }
+ 
+-// Merge incoming rows into a local array by id, last-write-wins on updated_at.
+-// Remote tombstones (deleted:true) drop the local row.
+-function mergeArray(localArr, rows, keyField) {
++function mergeArray(localArr, rows, keyField, extraFn) {
+   const arr = localArr.slice();
+   for (const row of rows || []) {
+-    const incoming = rowToLocal(row);
++    const incoming = extraFn ? rowToLocal(row, extraFn(row)) : rowToLocal(row);
+     const idx = arr.findIndex((x) => x[keyField] === incoming[keyField]);
+     if (incoming.deleted) {
+       if (idx >= 0) arr.splice(idx, 1);
+@@ -25,47 +149,94 @@ function mergeArray(localArr, rows, keyField) {
+   return arr;
+ }
+ 
+-// Pull newer records from cloud and hand back a merged data object.
+-// Offline-first: this is called only when online + signed in, and it merges
+-// into whatever is already local rather than replacing it.
+-export async function pullFromCloud(currentData) {
++// ---------------------------------------------------------------------------
++// ORCHESTRATION
++// One full sync cycle: PUSH local dirty records first (so our edits aren't
++// clobbered by an older pull marker), then PULL remote changes. Returns the
++// merged data object (or null if signed out / nothing to do). Offline-first:
++// the caller only invokes this when online + signed in, and always keeps local
++// working if it throws.
++// ---------------------------------------------------------------------------
++export async function syncNow(currentData) {
++  if (!navigator.onLine) return null;
+   const { data: auth } = await sb.auth.getUser();
+-  if (!auth || !auth.user) return null; // not signed in — nothing to pull
++  if (!auth || !auth.user) return null; // signed out → local-only
+ 
+-  const since = localStorage.getItem(LAST_PULL_KEY) || '1970-01-01T00:00:00.000Z';
+-  const next = { ...currentData };
++  const data = { ...currentData };
+ 
+-  // seasons
++  // PUSH — mutates the (copied) records to clear dirty flags on success.
++  await pushProfile(data);
++  await pushTable('seasons', data.seasons, seasonRow);
++  await pushTable('sessions', data.sessions, sessionRow);
++  await pushTable('catches', data.catches, catchRow);
++  // Upload dirty catch photos to Supabase Storage (IndexedDB -> cloud).
++  await pushPhotos(auth.user.id, data.catches);
++
++  // PULL — merge newer remote rows since the last successful pull.
++  const since = localStorage.getItem(LAST_PULL_KEY) || '1970-01-01T00:00:00.000Z';
+   {
+     const { data: rows, error } = await sb.from('seasons').select('*').gt('updated_at', since);
+-    if (!error && rows) next.seasons = mergeArray(next.seasons || [], rows, 'id');
++    if (!error && rows) data.seasons = mergeArray(data.seasons || [], rows, 'id');
+   }
+-  // sessions
+   {
+     const { data: rows, error } = await sb.from('sessions').select('*').gt('updated_at', since);
+-    if (!error && rows) next.sessions = mergeArray(next.sessions || [], rows, 'id');
++    if (!error && rows) data.sessions = mergeArray(data.sessions || [], rows, 'id');
+   }
+-  // catches
+   {
+     const { data: rows, error } = await sb.from('catches').select('*').gt('updated_at', since);
+-    if (!error && rows) next.catches = mergeArray(next.catches || [], rows, 'id');
++    if (!error && rows) {
++      data.catches = mergeArray(data.catches || [], rows, 'id',
++        (r) => ({ sessionId: r.session_id, hasPhoto: r.has_photo }));
++    }
+   }
+-  // profile (refs, sound, mode, active season, loadouts, templates)
++  // Download any photos present on the server but missing locally.
++  await pullPhotos(auth.user.id, data.catches);
+   {
+     const { data: rows, error } = await sb.from('profiles').select('*').limit(1);
+     if (!error && rows && rows.length) {
+       const p = rows[0];
+       if ((p.updated_at || '') > since) {
+-        if (p.refs) next.refs = p.refs;
+-        if (p.sound) next.sound = p.sound;
+-        if (p.active_season) next.activeSeason = p.active_season;
+-        if (p.mode) next.mode = p.mode;
+-        if (p.loadouts) next.loadouts = p.loadouts;
+-        if (p.trip_templates) next.tripTemplates = p.trip_templates;
++        if (p.refs) data.refs = p.refs;
++        if (p.sound) data.sound = p.sound;
++        if (p.journal) data.journal = p.journal;
++        if (p.active_season) data.activeSeason = p.active_season;
++        if (p.mode) data.mode = p.mode;
++        if (p.loadouts) data.loadouts = p.loadouts;
++        if (p.trip_templates) data.tripTemplates = p.trip_templates;
+       }
+     }
+   }
+ 
+-  localStorage.setItem(LAST_PULL_KEY, new Date().toISOString());
+-  return next;
++  localStorage.setItem(LAST_PULL_KEY, nowISO());
++  return data;
++}
++
++// ---------------------------------------------------------------------------
++// ONE-TIME MIGRATION: seed the server from an existing local device the first
++// time this device ever syncs (has local data but has never pulled before).
++// Marks everything dirty so the first syncNow pushes the whole journal up.
++// ---------------------------------------------------------------------------
++export async function migrateIfNeeded(currentData) {
++  if (localStorage.getItem(LAST_PULL_KEY)) return null; // already synced before
++  const { data: auth } = await sb.auth.getUser();
++  if (!auth || !auth.user) return null;
++  const stamp = nowISO();
++  const data = { ...currentData };
++  (data.seasons || []).forEach((s) => { s.updated_at = stamp; s._dirty = true; });
++  (data.sessions || []).forEach((s) => { s.updated_at = stamp; s._dirty = true; });
++  (data.catches || []).forEach((c) => { c.updated_at = stamp; c._dirty = true; if (c.hasPhoto) c._photoDirty = true; });
++  touchProfile(data);
++  return data;
++}
++
++// Delete a catch's photo from cloud Storage via the Storage API (the supported
++// way — direct SQL deletes from storage.objects are blocked by newer Supabase).
++export async function deleteCloudPhoto(catchId) {
++  try {
++    const { data: auth } = await sb.auth.getUser();
++    if (!auth || !auth.user) return;
++    const path = `${auth.user.id}/${catchId}.jpg`;
++    const { error } = await sb.storage.from(PHOTO_BUCKET).remove([path]);
++    if (error) console.warn('[sync] cloud photo delete failed', catchId, error);
++  } catch (e) { console.warn('[sync] cloud photo delete error', catchId, e); }
+ }
+-- 
+2.43.0
+
