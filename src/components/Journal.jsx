@@ -1,6 +1,8 @@
+import { useState, useEffect } from 'react';
 import { useData } from '../lib/DataContext.jsx';
 import { esc } from '../lib/fishDisplay.js';
 import { storyFor } from '../lib/story.js';
+import { generateFishTale } from '../lib/fishTale.js';
 import {
   chapterStats, chapterIcon, chapterSeasonType, chapterSubtitle, chapterYear,
   chapterSessions, tripCoverClass, tripCoverIcon, seasonDisplayName,
@@ -21,8 +23,71 @@ import {
 //   onOpenLivewell(sessionId): open a trip's livewell
 //   onRemember(session): open the River Remembers modal for a trip
 //   onToast(msg): toast
+// A per-trip "Fish Tale" block: shows the saved AI story (distinct from the
+// existing local storyFor() paragraph above it) and a "🎣 Spin a Fish Tale"
+// button that generates/regenerates one via the edge function. The button only
+// appears when online; the tale itself is always shown once it exists, even
+// offline, since it's stored on the session and synced. Generating saves through
+// update() so it rides the normal sync + persists across devices.
+function FishTaleSection({ data, session, update, onToast }) {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  const [online, setOnline] = useState(typeof navigator === 'undefined' ? true : navigator.onLine);
+
+  useEffect(() => {
+    const up = () => setOnline(true);
+    const down = () => setOnline(false);
+    window.addEventListener('online', up);
+    window.addEventListener('offline', down);
+    return () => { window.removeEventListener('online', up); window.removeEventListener('offline', down); };
+  }, []);
+
+  const tale = session.fishTale;
+  const hasTale = !!(tale && tale.trim());
+
+  const spin = async () => {
+    setBusy(true);
+    setError('');
+    try {
+      const text = await generateFishTale(data, session);
+      const stamp = new Date().toISOString();
+      // Save on the session; touch updated_at + _dirty so it syncs everywhere.
+      update((prev) => ({
+        ...prev,
+        sessions: prev.sessions.map((s) =>
+          s.id === session.id
+            ? { ...s, fishTale: text, fishTaleAt: stamp, updated_at: stamp, _dirty: true }
+            : s
+        ),
+      }));
+      onToast && onToast('🎣 A fish tale has been spun');
+    } catch (e) {
+      setError(e.message || 'Could not spin a tale.');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="fish-tale">
+      {hasTale && (
+        <div className="fish-tale-body">
+          <span className="eyebrow">Fish Tale</span>
+          <p className="story fish-tale-text">{tale}</p>
+        </div>
+      )}
+      {error && <p className="fish-tale-error">{esc(error)}</p>}
+      {online && (
+        <button className="btn fish-tale-btn" onClick={spin} disabled={busy}>
+          {busy ? '🎣 Spinning…' : hasTale ? '🎣 Spin a New Tale' : '🎣 Spin a Fish Tale'}
+        </button>
+      )}
+    </div>
+  );
+}
+
 export default function Journal({ onStartSeason, onManageChapters, onOpenLivewell, onRemember, onEndTrip, onToast }) {
-  const { data, updateProfile } = useData();
+  const { data, updateProfile, update } = useData();
 
   const ch = data.seasons.find((s) => s.id === data.activeSeason) || data.seasons[0] || {};
   const st = chapterStats(data, ch.id);
@@ -126,6 +191,7 @@ export default function Journal({ onStartSeason, onManageChapters, onOpenLivewel
               <span className="cover-mark">{tripCoverIcon(s)}</span>
               <h3 className="chapter-title">{s.title || s.name}</h3>
               <p className="story" dangerouslySetInnerHTML={{ __html: storyFor(data, s) }} />
+              <FishTaleSection data={data} session={s} update={update} onToast={onToast} />
               <div className="chips">
                 <span className="chip green">{c.length} fish</span>
                 <span className="chip gold">Best {b.length || 0}"</span>

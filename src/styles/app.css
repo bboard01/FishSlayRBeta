@@ -674,3 +674,17 @@ body.water-mode[data-active-page="livewell"] .main{display:block!important;paddi
   .mobile-cloud .dock-card{display:block}
 }
 .water-mode .mobile-cloud{display:none!important}
+
+/* --- AI "Fish Tale" (Journal) ---
+   The generated story sits inside each trip's story cover, below the local
+   storyFor() paragraph and clearly labeled so the two are distinct. The tale
+   text preserves the model's paragraph breaks. The Spin button only renders
+   when online (handled in JSX); styled to read as a gentle, gold accent action
+   in keeping with "The River Remembers" moments. */
+.fish-tale{position:relative;z-index:1;margin:6px 0 2px}
+.fish-tale-body{border-left:2px solid rgba(255,211,107,.42);padding:2px 0 2px 14px;margin-bottom:12px;background:linear-gradient(90deg,rgba(255,211,107,.06),transparent 60%)}
+.fish-tale-body .eyebrow{margin-bottom:8px;border-color:rgba(255,211,107,.34);background:rgba(255,211,107,.10);color:#ffe4a3}
+.fish-tale-text{white-space:pre-line;font-style:italic;color:#eafcff;line-height:1.55;margin:0}
+.fish-tale-error{color:#ffd6dc;font-weight:850;font-size:.86rem;margin:4px 0 10px;border:1px solid rgba(255,97,120,.30);background:rgba(255,97,120,.10);border-radius:14px;padding:8px 12px}
+.fish-tale-btn{border-color:rgba(255,211,107,.30);background:linear-gradient(135deg,rgba(255,227,157,.16),rgba(255,189,66,.10));color:#ffe4a3}
+.fish-tale-btn:disabled{opacity:.65;cursor:progress}
