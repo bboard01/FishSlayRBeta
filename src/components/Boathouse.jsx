@@ -25,7 +25,7 @@ function greeting(session, catchCount) {
 // and greeting are all live again (the port had replaced them with static
 // migration copy). "Land a Fish" opens the catch flow; the other actions jump
 // to their screens as those ports land.
-export default function Boathouse({ onLandFish, onNewTrip, onOpenLivewell, onRemember, onSync, signedIn, onOpenJournal, onStartSeason, onOpenCatch, onEndTrip, lastCatchId }) {
+export default function Boathouse({ onLandFish, onNewTrip, onOpenLivewell, onRemember, onSync, signedIn, onOpenJournal, onStartSeason, onOpenCatch, onEndTrip, lastCatchId, isWater, onExitWater }) {
   const { data, activeSession, catchesForSession, currentSeason, biggest } = useData();
 
   const s = activeSession() || {};
@@ -90,6 +90,11 @@ export default function Boathouse({ onLandFish, onNewTrip, onOpenLivewell, onRem
               {s.active && (
                 <button className="btn end-trip-btn" onClick={() => onEndTrip && onEndTrip()}>
                   End Trip
+                </button>
+              )}
+              {isWater && (
+                <button className="btn" onClick={() => onExitWater && onExitWater()}>
+                  ↩ Dock
                 </button>
               )}
             </div>

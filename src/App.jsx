@@ -298,32 +298,6 @@ export default function App() {
           {pulling && <div className="muted" style={{ fontSize: '.75rem', marginBottom: 8 }}>☁️ Syncing…</div>}
           <CloudButton auth={auth} onSync={doSync} />
         </div>
-        {/* Water Mode toggle card — replaces the old floating "↩ Dock Mode"
-            button that hovered over the hero and got in the way. In water mode
-            this labeled Dock/Water toggle sits at the top of the card so
-            returning to dock is a clear, in-flow control. */}
-        {isWater && (
-          <div className="water-mode-card">
-            <div className="wm-label">
-              <strong>🌊 Water Mode</strong>
-              <small>Focused on-water view. Switch back to Dock for the full journal.</small>
-            </div>
-            <div className="mode-toggle">
-              <button
-                className={data.mode === 'dock' ? 'active' : ''}
-                onClick={() => updateProfile((prev) => ({ ...prev, mode: 'dock' }))}
-              >
-                ⚓ Dock
-              </button>
-              <button
-                className={data.mode === 'water' ? 'active' : ''}
-                onClick={() => updateProfile((prev) => ({ ...prev, mode: 'water' }))}
-              >
-                🌊 Water
-              </button>
-            </div>
-          </div>
-        )}
         {page === 'boathouse' && (
           <Boathouse
             onLandFish={startLogging}
@@ -337,6 +311,8 @@ export default function App() {
             onOpenCatch={(id) => setOpenCatchId(id)}
             onEndTrip={() => openCeremony(null)}
             lastCatchId={lastCatchId}
+            isWater={isWater}
+            onExitWater={() => updateProfile((prev) => ({ ...prev, mode: 'dock' }))}
           />
         )}
         {page === 'livewell' && (

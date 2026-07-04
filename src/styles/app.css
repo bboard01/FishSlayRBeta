@@ -674,16 +674,3 @@ body.water-mode[data-active-page="livewell"] .main{display:block!important;paddi
   .mobile-cloud .dock-card{display:block}
 }
 .water-mode .mobile-cloud{display:none!important}
-
-/* Water Mode toggle lives ON the water-mode card (bug: the floating return
-   button hovered over the hero and got in the way). The card renders a labeled
-   toggle row; the old floating .water-return button is retired in water mode. */
-.water-mode-card{position:relative;z-index:2;display:flex;align-items:center;justify-content:space-between;gap:14px;flex-wrap:wrap;border:1px solid rgba(211,244,255,.24);background:rgba(3,17,30,.55);backdrop-filter:blur(12px);border-radius:22px;padding:14px 16px;margin:0 auto 16px;max-width:720px}
-.water-mode-card .wm-label{display:flex;flex-direction:column;gap:2px}
-.water-mode-card .wm-label strong{font-size:1rem;letter-spacing:-.02em}
-.water-mode-card .wm-label small{color:var(--muted);font-weight:850;font-size:.8rem}
-.water-mode-card .mode-toggle{margin:0;min-width:200px}
-@media(max-width:760px){
-  .water-mode-card{margin:calc(6px + env(safe-area-inset-top)) auto 14px;padding:12px 14px}
-  .water-mode-card .mode-toggle{min-width:0;flex:1}
-}
