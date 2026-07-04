@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 import { useAuth } from './lib/useAuth.js';
 import { useData } from './lib/DataContext.jsx';
 import { fishEmoji } from './lib/fishDisplay.js';
+import { FishAudio, haptic, unlock, setAudioSettings } from './lib/audio.js';
 import Boathouse from './components/Boathouse.jsx';
 import Livewell from './components/Livewell.jsx';
 import CloudButton from './components/CloudButton.jsx';
@@ -17,6 +18,8 @@ import Legends from './components/Legends.jsx';
 import RiverRemembers from './components/RiverRemembers.jsx';
 import TripCeremony from './components/TripCeremony.jsx';
 import SeasonSheet from './components/SeasonSheet.jsx';
+import AudioLab from './components/AudioLab.jsx';
+import SonarModal, { playSonar } from './components/SonarModal.jsx';
 
 const NAV = [
   ['boathouse', '🛶', 'Boathouse'],
@@ -28,6 +31,22 @@ const NAV = [
   ['legends', '🏆', 'Legends'],
   ['rigbox', '⚙', 'Rig Box'],
 ];
+
+// Spawn two expanding ripple rings at the click point — ported verbatim from
+// the single-file app's wideRipple(). Purely decorative; removed after ~1.4s.
+function wideRipple(e) {
+  let x = window.innerWidth / 2, y = window.innerHeight / 2;
+  if (e && e.clientX) { x = e.clientX; y = e.clientY; }
+  const r = document.createElement('span');
+  r.className = 'ripple-ring';
+  r.style.left = x + 'px';
+  r.style.top = y + 'px';
+  document.body.appendChild(r);
+  const r2 = r.cloneNode();
+  r2.className = 'ripple-ring second';
+  document.body.appendChild(r2);
+  setTimeout(() => { r.remove(); r2.remove(); }, 1400);
+}
 
 export default function App() {
   const [page, setPage] = useState('boathouse');
@@ -54,9 +73,32 @@ export default function App() {
   // The just-landed catch id — drives the Living Livewell's drop-in animation
   // and the tank's splash pulse. Cleared shortly after so it only plays once.
   const [lastCatchId, setLastCatchId] = useState(null);
+  // The hidden FishAudio Lab easter egg — unlocked by five logo taps (or the Rig
+  // Box "Audio Lab" button). null = closed.
+  const [audioLab, setAudioLab] = useState(false);
+  // The catch whose Sonar Fix GPS modal is open (null = closed).
+  const [sonarCatchId, setSonarCatchId] = useState(null);
+  const openSonar = (id) => { setSonarCatchId(id); playSonar(); };
+  const logoTaps = useRef(0);
+  const tapTimer = useRef(null);
+
+  // Ported from the original's logo click listener: five quick taps on the
+  // FishSlayR logo open the Audio Lab and play the PB fanfare.
+  const onLogoTap = () => {
+    logoTaps.current += 1;
+    clearTimeout(tapTimer.current);
+    tapTimer.current = setTimeout(() => { logoTaps.current = 0; }, 1200);
+    if (logoTaps.current >= 5) {
+      logoTaps.current = 0;
+      unlock();
+      setAudioLab(true);
+      showToast('FishAudio Lab unlocked');
+      FishAudio.play('pb');
+    }
+  };
 
   // Open the Livewell on a specific trip (or the active one when id is null).
-  const openLivewellFor = (id) => { setViewedSessionId(id || null); setPage('livewell'); };
+  const openLivewellFor = (id) => { setViewedSessionId(id || null); setPage('livewell'); FishAudio.play('sonar'); };
 
   // Open the Trip Ceremony for a session (End Trip button). Falls back to the
   // active session when no id is given.
@@ -82,6 +124,7 @@ export default function App() {
     setViewedSessionId(id);
     setPage('livewell');
     if (s && s.id) setRemembering(s);
+    FishAudio.play('chapter');
     showToast('🌅 Chapter closed. The River Remembers.');
   };
   // Lightweight toast — the original's toast(): a short message that fades.
@@ -130,12 +173,34 @@ export default function App() {
       // Leaving water mode: restore the last dock page.
       setPage(lastDockPage.current || 'boathouse');
     }
+    // Mode changes played the sonar sweep in the original (setMode).
+    if (prevMode.current !== data.mode) FishAudio.play('sonar');
     prevMode.current = data.mode;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [data.mode]);
 
-  // Toggle back to dock from the floating water-return button.
-  const exitWaterMode = () => updateProfile((prev) => ({ ...prev, mode: 'dock' }));
+  // --- FishAudio wiring (ported from the single-file app) ---------------------
+  // Keep the sound engine's settings snapshot in step with data.sound so mute,
+  // master/effects levels, and the haptics preference take effect immediately.
+  useEffect(() => {
+    setAudioSettings(data.sound);
+  }, [data.sound]);
+
+  // Global click handler — the original played a soft "button" click and threw a
+  // ripple on every button press (document.addEventListener('click', …)). The
+  // first user gesture also unlocks the AudioContext (browser autoplay policy),
+  // so sound can start the moment it's enabled.
+  useEffect(() => {
+    const onClick = (e) => {
+      unlock();
+      if (e.target.closest && e.target.closest('button')) {
+        FishAudio.play('button');
+        wideRipple(e);
+      }
+    };
+    document.addEventListener('click', onClick);
+    return () => document.removeEventListener('click', onClick);
+  }, []);
 
   const openCatch = (id) => {
     // A real id opens its catch card. `null` comes from "Land Another" — open
@@ -157,6 +222,7 @@ export default function App() {
     if (!auth.signedIn) { showToast('Sign in to sync'); return; }
     if (!navigator.onLine) { showToast('Offline — will sync when back online'); return; }
     const ok = await runSync();
+    if (!ok) FishAudio.play('error');
     showToast(ok ? '☁️ Synced' : 'Sync failed');
   };
 
@@ -167,6 +233,10 @@ export default function App() {
   // the right toast, fling the swim-ghost, mark the new catch so the Living
   // Livewell drops it in with a splash, and drop the user into the livewell.
   const onLanded = (obj, isPB) => {
+    // Ported from landFish()'s tail: PB fanfare vs the splash, plus the matching
+    // haptic pattern.
+    FishAudio.play(isPB ? 'pb' : 'splash');
+    haptic(isPB ? [40, 40, 100] : [20, 30, 20]);
     showToast(isPB ? '🏆 A New Legend' : '🌊 The River Remembers');
     setViewedSessionId(null); // show the active trip so the new fish appears
     setLastCatchId(obj.id);
@@ -181,9 +251,6 @@ export default function App() {
 
   return (
     <div className="app">
-      {/* Water Mode return button — CSS shows it only when .water-mode is on
-          the body (ported from the original's #waterReturn). */}
-      <button className="water-return" onClick={exitWaterMode}>↩ Dock Mode</button>
       {/* Ambient underwater layer behind the whole app — drifting fish
           silhouettes + rising bubbles. Ported from the original's <div
           class="world"> block. Purely decorative (pointer-events:none). */}
@@ -198,7 +265,7 @@ export default function App() {
       </div>
 
       <aside className="rail">
-        <div className="logo">
+        <div className="logo" onClick={onLogoTap}>
           <div className="mark" />
           <div>
             <h1>FishSlayR</h1>
@@ -223,6 +290,40 @@ export default function App() {
       </aside>
 
       <main className="main">
+        {/* Mobile-only cloud bar — the .rail (which holds sign-in / sync / sign
+            out) is hidden under 760px, so on phones the installed WebAPK had no
+            way to authenticate or sync. This surfaces the same CloudButton at the
+            top of every screen on mobile; CSS hides it on desktop. */}
+        <div className="mobile-cloud">
+          {pulling && <div className="muted" style={{ fontSize: '.75rem', marginBottom: 8 }}>☁️ Syncing…</div>}
+          <CloudButton auth={auth} onSync={doSync} />
+        </div>
+        {/* Water Mode toggle card — replaces the old floating "↩ Dock Mode"
+            button that hovered over the hero and got in the way. In water mode
+            this labeled Dock/Water toggle sits at the top of the card so
+            returning to dock is a clear, in-flow control. */}
+        {isWater && (
+          <div className="water-mode-card">
+            <div className="wm-label">
+              <strong>🌊 Water Mode</strong>
+              <small>Focused on-water view. Switch back to Dock for the full journal.</small>
+            </div>
+            <div className="mode-toggle">
+              <button
+                className={data.mode === 'dock' ? 'active' : ''}
+                onClick={() => updateProfile((prev) => ({ ...prev, mode: 'dock' }))}
+              >
+                ⚓ Dock
+              </button>
+              <button
+                className={data.mode === 'water' ? 'active' : ''}
+                onClick={() => updateProfile((prev) => ({ ...prev, mode: 'water' }))}
+              >
+                🌊 Water
+              </button>
+            </div>
+          </div>
+        )}
         {page === 'boathouse' && (
           <Boathouse
             onLandFish={startLogging}
@@ -259,6 +360,7 @@ export default function App() {
             onStartTrip={() => setNewTrip(true)}
             onOpenLivewell={() => setPage('livewell')}
             onToast={showToast}
+            onOpenAudioLab={() => setAudioLab(true)}
           />
         )}
         {page === 'intelligence' && <RiverIntelligence />}
@@ -294,12 +396,30 @@ export default function App() {
         )}
       </main>
 
+      {/* Mobile bottom nav — the phone-only scrollable tab bar (the .rail is
+          hidden under 760px). Ported from the original's #mobileNav: icon over a
+          short label, active state, horizontal scroll. CSS shows it only on
+          mobile and hides it in water mode. */}
+      <nav className="mobile-nav">
+        {NAV.map(([id, icon, label]) => (
+          <button
+            key={id}
+            className={page === id ? 'active' : ''}
+            onClick={() => setPage(id)}
+          >
+            <div>{icon}</div>
+            <small>{label.split(' ')[0]}</small>
+          </button>
+        ))}
+      </nav>
+
       {openCatchId && (
         <CatchSheet
           catchId={openCatchId}
           onClose={() => setOpenCatchId(null)}
           onEdit={(c) => { setOpenCatchId(null); setEditingCatch(c); }}
           onRemember={(session) => setRemembering(session)}
+          onSonar={(id) => openSonar(id)}
         />
       )}
 
@@ -341,6 +461,16 @@ export default function App() {
           onClose={() => setCeremony(null)}
           onFinish={finishTrip}
           onViewLivewell={(id) => { setCeremony(null); openLivewellFor(id); }}
+        />
+      )}
+
+      {audioLab && <AudioLab onClose={() => setAudioLab(false)} />}
+
+      {sonarCatchId && (
+        <SonarModal
+          catchId={sonarCatchId}
+          onClose={() => setSonarCatchId(null)}
+          onToast={showToast}
         />
       )}
 

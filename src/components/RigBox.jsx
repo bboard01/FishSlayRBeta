@@ -3,6 +3,7 @@ import { useData } from '../lib/DataContext.jsx';
 import { normalizeRefs, DEFAULT_REFS } from '../lib/refs.js';
 import { photoClearAll } from '../lib/photos.js';
 import { chapterStats, chapterIcon, seasonDisplayName } from '../lib/seasons.js';
+import { FishAudio, unlock, setAudioSettings } from '../lib/audio.js';
 
 // Rig Box — the settings / Season Manager screen. Ported from the single-file
 // app's renderRigboxV1() + seasonCardsV1(): the same hero, active-season card,
@@ -19,7 +20,7 @@ import { chapterStats, chapterIcon, seasonDisplayName } from '../lib/seasons.js'
 //   onStartTrip(): open the New Trip sheet
 //   onOpenLivewell(): jump to the active livewell
 //   onToast(msg): show a toast
-export default function RigBox({ onStartSeason, onRenameSeason, onStartTrip, onOpenLivewell, onToast }) {
+export default function RigBox({ onStartSeason, onRenameSeason, onStartTrip, onOpenLivewell, onToast, onOpenAudioLab }) {
   const { data, update, updateProfile, replaceData, scheduleSync, currentSeason, activeSession } = useData();
   const fileRef = useRef(null);
 
@@ -82,12 +83,19 @@ export default function RigBox({ onStartSeason, onRenameSeason, onStartTrip, onO
 
   // --- FishAudio toggle (ported from toggleSound). Syncs via profile. ---
   const toggleSound = () => {
+    const willEnable = !soundOn;
     updateProfile((prev) => ({
       ...prev,
       sound: { ...(prev.sound || {}), enabled: !prev.sound?.enabled },
     }));
-    onToast && onToast(!soundOn ? 'FishAudio enabled' : 'Sound muted');
+    // Unlock the AudioContext on this gesture and play the sonar confirmation so
+    // enabling sound is audible immediately (matches the original toggleSound).
+    if (willEnable) { unlock(); setAudioSettings({ ...(data.sound || {}), enabled: true }); FishAudio.play('sonar'); }
+    onToast && onToast(willEnable ? 'FishAudio enabled' : 'Sound muted');
   };
+
+  // Open the hidden FishAudio Lab (the same panel five logo taps unlock).
+  const openAudioLab = () => { onOpenAudioLab && onOpenAudioLab(); };
 
   // --- Export JSON (ported from exportJSON). ---
   const exportJSON = () => {
@@ -297,6 +305,7 @@ export default function RigBox({ onStartSeason, onRenameSeason, onStartTrip, onO
             <small>{soundOn ? 'Sound is enabled.' : 'Sound is muted.'}</small>
             <div className="actions">
               <button className="btn" onClick={toggleSound}>{soundOn ? 'Mute' : 'Enable Sound'}</button>
+              <button className="btn" onClick={openAudioLab}>Audio Lab</button>
             </div>
           </div>
         </div>

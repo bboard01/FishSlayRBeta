@@ -272,7 +272,13 @@ body[data-mood="night"]{background:radial-gradient(circle at 70% -8%,rgba(125,23
   .livewell{gap:10px!important;}
   .fish-card{min-width:calc(50% - 5px)!important;max-width:none!important;padding:12px!important;border-radius:20px!important;}
   .fish-card .length-main{font-size:1.7rem!important;}
-  .fish-card .photo-tag,.fish-photo{height:48px!important;}
+  /* The real photo thumbnail needs room — 48px squashed it. The overlaid
+     "photo-tag" pill (position:absolute over a photo) stays auto-sized; only the
+     standalone "No Photo Yet" placeholder pill is the short one. */
+  .fish-card .fish-photo{height:96px!important;}
+  .fish-card .fish-photo img{object-position:center;}
+  .fish-card>.photo-tag{height:48px!important;}
+  .fish-card .fish-photo+.photo-tag{height:auto!important;}
   .intel-console{grid-template-columns:1fr!important;gap:9px!important;padding:10px!important;}
   .intel-answer{font-size:clamp(1.55rem,9vw,2.25rem)!important;line-height:1.05!important;}
   .intel-scorecards,.condition-board,.profile-grid,.legend-wall,.water-field-journal{grid-template-columns:1fr!important;}
@@ -647,7 +653,37 @@ body.water-mode[data-active-page="livewell"] .main{display:block!important;paddi
    a boxed panel embed, so pin a fixed, sensible height and override the mobile
    full-viewport rule. Dock actions stay inside the box. */
 .boathouse-tank .living-livewell-wrap{min-height:0;height:420px;border-radius:26px;border-left:1px solid rgba(211,244,255,.22);border-right:1px solid rgba(211,244,255,.22)}
-.boathouse-tank .livewell-dock-actions{position:absolute}
 @media(max-width:760px){
   .boathouse-tank .living-livewell-wrap{height:360px;min-height:0}
+}
+/* The Boathouse "Today's Livewell" is a preview embed — the desktop layout has
+   no Land Fish / Trip Story buttons on it (those live on the hero and the main
+   Livewell screen). The tank's own dock actions are hidden on desktop but the
+   mobile rule re-shows them, which made phones sprout two extra buttons on the
+   Boathouse that desktop never had. Hide them for the embed on every width so
+   the mobile Boathouse matches the desktop look. */
+.boathouse-tank .livewell-dock-actions{display:none!important}
+
+/* Mobile cloud bar (bug: no sign-in / sync on the installed mobile WebAPK).
+   The .rail — which holds the CloudButton — is hidden under 760px, so phones had
+   no way to authenticate or sync. Surface the same control at the top of the
+   content on mobile only; the rail still handles it on desktop. */
+.mobile-cloud{display:none}
+@media(max-width:760px){
+  .mobile-cloud{display:block;margin:0 0 14px}
+  .mobile-cloud .dock-card{display:block}
+}
+.water-mode .mobile-cloud{display:none!important}
+
+/* Water Mode toggle lives ON the water-mode card (bug: the floating return
+   button hovered over the hero and got in the way). The card renders a labeled
+   toggle row; the old floating .water-return button is retired in water mode. */
+.water-mode-card{position:relative;z-index:2;display:flex;align-items:center;justify-content:space-between;gap:14px;flex-wrap:wrap;border:1px solid rgba(211,244,255,.24);background:rgba(3,17,30,.55);backdrop-filter:blur(12px);border-radius:22px;padding:14px 16px;margin:0 auto 16px;max-width:720px}
+.water-mode-card .wm-label{display:flex;flex-direction:column;gap:2px}
+.water-mode-card .wm-label strong{font-size:1rem;letter-spacing:-.02em}
+.water-mode-card .wm-label small{color:var(--muted);font-weight:850;font-size:.8rem}
+.water-mode-card .mode-toggle{margin:0;min-width:200px}
+@media(max-width:760px){
+  .water-mode-card{margin:calc(6px + env(safe-area-inset-top)) auto 14px;padding:12px 14px}
+  .water-mode-card .mode-toggle{min-width:0;flex:1}
 }
