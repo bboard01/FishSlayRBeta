@@ -172,18 +172,26 @@ export async function syncNow(currentData) {
   // Upload dirty catch photos to Supabase Storage (IndexedDB -> cloud).
   await pushPhotos(auth.user.id, data.catches);
 
-  // PULL — merge newer remote rows since the last successful pull.
-  const since = localStorage.getItem(LAST_PULL_KEY) || '1970-01-01T00:00:00.000Z';
+  // PULL — pull the FULL tables and merge, rather than an incremental
+  // `updated_at > lastPull` window. The incremental cursor caused catches to be
+  // permanently missed across devices: `since` was stamped with the *pulling*
+  // device's clock (advanced to now() every sync), while row `updated_at` values
+  // are stamped with the *creating* device's clock. Any clock skew — or simply
+  // syncing on device B after device A had already advanced its cursor past a
+  // row's timestamp — meant that row was never queried again. Row counts here
+  // are tiny (a small private group), so a full pull is cheap and makes sync
+  // robust: mergeArray is last-write-wins + tombstone-aware, so re-pulling
+  // everything every time is safe and idempotent.
   {
-    const { data: rows, error } = await sb.from('seasons').select('*').gt('updated_at', since);
+    const { data: rows, error } = await sb.from('seasons').select('*');
     if (!error && rows) data.seasons = mergeArray(data.seasons || [], rows, 'id');
   }
   {
-    const { data: rows, error } = await sb.from('sessions').select('*').gt('updated_at', since);
+    const { data: rows, error } = await sb.from('sessions').select('*');
     if (!error && rows) data.sessions = mergeArray(data.sessions || [], rows, 'id');
   }
   {
-    const { data: rows, error } = await sb.from('catches').select('*').gt('updated_at', since);
+    const { data: rows, error } = await sb.from('catches').select('*');
     if (!error && rows) {
       data.catches = mergeArray(data.catches || [], rows, 'id',
         (r) => ({ sessionId: r.session_id, hasPhoto: r.has_photo }));
@@ -192,21 +200,27 @@ export async function syncNow(currentData) {
   // Download any photos present on the server but missing locally.
   await pullPhotos(auth.user.id, data.catches);
   {
+    // Profile is a singleton row; pull it unconditionally and take the server
+    // copy when it's newer than our local profile stamp (last-write-wins). Using
+    // the profile's own updated_at avoids the same cross-device cursor pitfall.
     const { data: rows, error } = await sb.from('profiles').select('*').limit(1);
     if (!error && rows && rows.length) {
       const p = rows[0];
-      if ((p.updated_at || '') > since) {
+      const localProfileStamp = data._profileUpdatedAt || '';
+      if ((p.updated_at || '') >= localProfileStamp) {
         if (p.refs) data.refs = p.refs;
         if (p.sound) data.sound = p.sound;
         if (p.journal) data.journal = p.journal;
         if (p.active_season) data.activeSeason = p.active_season;
         if (p.mode) data.mode = p.mode;
         if (p.loadouts) data.loadouts = p.loadouts;
-        if (p.trip_templates) data.tripTemplates = p.trip_templates;
+        if (p.trip_templates) data.tripTemplates = p.tripTemplates ?? p.trip_templates;
       }
     }
   }
 
+  // Keep a marker so migrateIfNeeded knows this device has synced before (it's
+  // no longer used as a pull cursor).
   localStorage.setItem(LAST_PULL_KEY, nowISO());
   return data;
 }
