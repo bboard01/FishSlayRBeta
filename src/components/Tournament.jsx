@@ -345,9 +345,13 @@ function Leaderboard({ active, data, toast, onLeave, runSync }) {
 
   const myInvalidCatches = (data.catches || []).filter((c) => c.tournStatus === 'invalidated');
 
+  // Dashboard summary: find your team's row on the ranked board.
+  const myRow = rows.find((r) => r.team_id === myTeamId) || null;
+
   return (
     <div className="grid">
-      <div className="glass panel span12 tourn-hero">
+      {/* Identity + prominent join code — home-base header */}
+      <div className="glass panel span8 tourn-hero tourn-dash-id">
         <span className="eyebrow">Tournament{meta?.status === 'closed' ? ' · closed' : ''}</span>
         <h2 className="chapter-title">{meta?.name || 'Leaderboard'}</h2>
         {meta && (
@@ -356,10 +360,33 @@ function Leaderboard({ active, data, toast, onLeave, runSync }) {
           </p>
         )}
         <ShareCode code={meta?.join_code} toast={toast} />
-        <div className="tourn-actions" style={{ marginTop: 10 }}>
-          <button className="btn small" onClick={load} disabled={loading || busy}>{loading ? 'Refreshing…' : '↻ Refresh'}</button>
+      </div>
+
+      {/* Your team — rank + score glance card */}
+      <div className="glass panel span4 tourn-dash-you">
+        <span className="eyebrow">Your team</span>
+        <h3 className="tourn-dash-team">{myRow?.team_name || 'Your team'}</h3>
+        <div className="tourn-dash-stat">
+          <div className="tourn-dash-rank">
+            <span className="tourn-dash-num">{myRow ? `#${myRow.rank}` : '—'}</span>
+            <span className="muted">rank</span>
+          </div>
+          <div className="tourn-dash-score">
+            <span className="tourn-dash-num gold">{myRow ? `${Number(myRow.score).toFixed(2)}"` : '—'}</span>
+            <span className="muted">top 3 bass</span>
+          </div>
+        </div>
+        <div className="tourn-actions tourn-dash-acts">
+          {/* placeholder — modal wiring lands in the next phase */}
+          <button className="btn small" onClick={() => toast('Team switch coming soon')} disabled={busy}>Switch team</button>
           <button className="btn small danger" onClick={doLeave} disabled={busy}>Leave</button>
         </div>
+      </div>
+
+      {/* Board toolbar */}
+      <div className="glass panel span12 tourn-dash-bar">
+        <span className="eyebrow">Leaderboard</span>
+        <button className="btn small" onClick={load} disabled={loading || busy}>{loading ? 'Refreshing…' : '↻ Refresh'}</button>
       </div>
 
       {myInvalidCatches.length > 0 && (

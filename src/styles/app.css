@@ -721,6 +721,19 @@ body.water-mode[data-active-page="livewell"] .main{display:block!important;paddi
 .tourn-share .btn{margin-left:auto}
 @media(max-width:760px){.tourn-share .btn{margin-left:0}}
 
+/* dashboard home-base cards */
+.tourn-dash-id{display:flex;flex-direction:column}
+.tourn-dash-you{display:flex;flex-direction:column;gap:10px}
+.tourn-dash-team{font-size:1.4rem;letter-spacing:-.04em;margin:6px 0 0;color:#effcff}
+.tourn-dash-stat{display:flex;gap:22px;margin-top:4px}
+.tourn-dash-rank,.tourn-dash-score{display:flex;flex-direction:column;gap:2px}
+.tourn-dash-num{font-size:2.1rem;font-weight:1000;letter-spacing:-.06em;line-height:1}
+.tourn-dash-num.gold{color:var(--gold)}
+.tourn-dash-you .muted{font-size:.72rem;text-transform:uppercase;letter-spacing:.08em;font-weight:850}
+.tourn-dash-acts{margin-top:auto}
+.tourn-dash-bar{display:flex;align-items:center;justify-content:space-between;gap:12px}
+.tourn-dash-bar .eyebrow{margin:0}
+
 /* leaderboard */
 .tourn-board{display:grid;gap:10px}
 .tourn-team{border:1px solid rgba(255,255,255,.13);background:rgba(255,255,255,.05);border-radius:20px;overflow:hidden}
