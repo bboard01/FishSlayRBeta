@@ -1,0 +1,405 @@
+From 34e3b3391d852d79392a35ac760158d02133f6d8 Mon Sep 17 00:00:00 2001
+From: FishSlayR Dev <dev@fishslayr.local>
+Date: Sun, 5 Jul 2026 18:29:49 +0000
+Subject: [PATCH] Tournament mode step 2: publish path (tournament.js) + sync
+ hooks
+
+- src/lib/tournament.js: publish minimal catch projections to the active
+  tournament (auto-publish + per-catch opt-out via tournOptOut), reusing the
+  existing 640px photoThumb. Bass-photo guard mirrors the server trigger;
+  rejected entries invalidate locally but keep the personal catch. Idempotent
+  re-publish; owner-invalidation reconciled on pull.
+- src/lib/sync.js: flushTournament() after the catch push, reconcileTournament()
+  after the pull. Offline-first: failures stay pending and retry.
+- test/publish_test.mjs: exercises the real lifecycle end-to-end.
+
+Active-tournament state lives on the profile object (data.activeTournament =
+{ tournamentId, teamId }) so it rides the existing profiles-row sync.
+---
+ src/lib/sync.js       |  13 +++
+ src/lib/tournament.js | 194 ++++++++++++++++++++++++++++++++++++++++++
+ test/publish_test.mjs | 134 +++++++++++++++++++++++++++++
+ 3 files changed, 341 insertions(+)
+ create mode 100644 src/lib/tournament.js
+ create mode 100644 test/publish_test.mjs
+
+diff --git a/src/lib/sync.js b/src/lib/sync.js
+index 232d58b..4a697c9 100644
+--- a/src/lib/sync.js
++++ b/src/lib/sync.js
+@@ -1,5 +1,6 @@
+ import { sb } from './supabase.js';
+ import { photoGet, photoPut } from './photos.js';
++import { flushTournament, reconcileTournament } from './tournament.js';
+ 
+ // Cloud sync engine — ported from the single-file app's FishSync IIFE.
+ // Offline-first: localStorage is the source of truth; this pushes local dirty
+@@ -172,6 +173,13 @@ export async function syncNow(currentData) {
+   // Upload dirty catch photos to Supabase Storage (IndexedDB -> cloud).
+   await pushPhotos(auth.user.id, data.catches);
+ 
++  // TOURNAMENT PUBLISH — if a tournament is active, flush publishable catches
++  // (auto-publish, minus per-catch opt-outs) as minimal projections. Mutates
++  // each catch's tournStatus in place; the caller persists the merged data.
++  // Offline-first: failures stay 'pending' and retry next cycle.
++  try { await flushTournament(data, auth.user.id); }
++  catch (e) { console.warn('[sync] tournament flush error', e); }
++
+   // PULL — pull the FULL tables and merge, rather than an incremental
+   // `updated_at > lastPull` window. The incremental cursor caused catches to be
+   // permanently missed across devices: `since` was stamped with the *pulling*
+@@ -219,6 +227,11 @@ export async function syncNow(currentData) {
+     }
+   }
+ 
++  // TOURNAMENT RECONCILE — pull the server's verdict on our own entries so an
++  // owner invalidation (or re-validation) after publish is reflected locally.
++  try { await reconcileTournament(data); }
++  catch (e) { console.warn('[sync] tournament reconcile error', e); }
++
+   // Keep a marker so migrateIfNeeded knows this device has synced before (it's
+   // no longer used as a pull cursor).
+   localStorage.setItem(LAST_PULL_KEY, nowISO());
+diff --git a/src/lib/tournament.js b/src/lib/tournament.js
+new file mode 100644
+index 0000000..ef44d8a
+--- /dev/null
++++ b/src/lib/tournament.js
+@@ -0,0 +1,194 @@
++// FishSlayR — Tournament publish path (step 2 of 6)
++// Offline-first, same discipline as sync.js: localStorage is truth, this mirrors
++// a MINIMAL projection of a catch up to the tournament tables when signal allows.
++//
++// A catch published to a tournament carries only: species, length, caught_at, a
++// thumbnail, and its local id. No notes, GPS, loadout, or journal text — those
++// never leave the private `catches` table (the firewall).
++//
++// LIFECYCLE (per catch, tracked by the `tournStatus` field on the catch object):
++//   undefined/absent  — not in a tournament (logged with no active tournament,
++//                        or the per-catch toggle was turned off)
++//   'pending'         — meant for the active tournament, not yet published
++//                        (offline, or no team picked yet)
++//   'published'       — projection row exists on the server; counts (if valid)
++//   'invalidated'     — server rejected it (bass w/o photo, out of window, upload
++//                        failed) OR owner voided it. The PERSONAL catch is kept
++//                        untouched; only the tournament entry is dead.
++//
++// The active tournament lives on the profile object as:
++//   data.activeTournament = { tournamentId, teamId } | null
++// (rides the existing profiles-row sync, so it's consistent across devices.)
++
++import { sb } from './supabase.js';
++
++const TOURN_BUCKET = 'tournament-photos';
++
++// The two species that score. Everything else (incl. the other five "bass"
++// species) is Other-bucket — published but never scored (scoring lives in the
++// leaderboard RPC; this set is only used for the client-side photo guard).
++const SCORING_BASS = new Set(['Smallmouth Bass', 'Largemouth Bass']);
++export function isScoringBass(species) { return SCORING_BASS.has(species); }
++
++// base64 data URL -> Blob (the catch's photoThumb is a base64 JPEG data URL).
++function dataURLtoBlob(dataURL) {
++  const [head, body] = String(dataURL).split(',');
++  const mime = (head.match(/:(.*?);/) || [])[1] || 'image/jpeg';
++  const bin = atob(body || '');
++  const arr = new Uint8Array(bin.length);
++  for (let i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i);
++  return new Blob([arr], { type: mime });
++}
++
++// A catch's caught_at: prefer the catch's own timestamp fields, fall back to
++// updated_at. Sessions carry the trip date; the catch carries time. We use the
++// most specific stamp available so the leaderboard's in-window check is right.
++function caughtAtISO(c, session) {
++  // photoMeta.ts (capture ms) is the most precise if present
++  if (c.photoMeta && c.photoMeta.ts) return new Date(c.photoMeta.ts).toISOString();
++  // else compose from the session date + catch time if both exist
++  if (session && session.date && c.time) {
++    const iso = new Date(`${session.date}T${c.time}:00`);
++    if (!isNaN(iso)) return iso.toISOString();
++  }
++  return c.updated_at || new Date().toISOString();
++}
++
++// Does this catch want to be in the active tournament right now?
++// Auto-publish is the default; the per-catch toggle sets tournOptOut = true to
++// skip. A catch already published or invalidated is not re-queued.
++export function shouldPublish(c, activeTournament) {
++  if (!activeTournament || !activeTournament.tournamentId) return false;
++  if (c.deleted) return false;
++  if (c.tournOptOut) return false;               // user toggled it off
++  if (c.tournStatus === 'published') return false;
++  if (c.tournStatus === 'invalidated') return false;
++  return true; // 'pending' or freshly logged with an active tournament
++}
++
++// Publish ONE catch's projection. Returns a verdict the caller applies to the
++// local catch object. Never throws — always resolves to a verdict.
++//   { status:'published' } | { status:'pending' } | { status:'invalidated', reason }
++async function publishOne(c, activeTournament, session, userId) {
++  const { tournamentId, teamId } = activeTournament;
++
++  // No team chosen yet (teamless join state) — keep it pending, try again later.
++  if (!teamId) return { status: 'pending' };
++
++  const scoringBass = isScoringBass(c.species);
++
++  // Client-side bass-photo guard (mirrors the server trigger). A scored bass with
++  // no thumbnail can never satisfy the server, so invalidate it up front with a
++  // clear reason rather than round-tripping to a guaranteed rejection.
++  if (scoringBass && !c.photoThumb) {
++    return { status: 'invalidated', reason: 'Bass entry needs a photo — not counted.' };
++  }
++
++  // Upload the thumbnail (reusing the existing 640px photoThumb) if present.
++  let photoPath = null;
++  if (c.photoThumb) {
++    try {
++      const blob = dataURLtoBlob(c.photoThumb);
++      photoPath = `${tournamentId}/${c.id}.jpg`;
++      const { error: upErr } = await sb.storage.from(TOURN_BUCKET)
++        .upload(photoPath, blob, { upsert: true, contentType: 'image/jpeg' });
++      if (upErr) {
++        // Upload failed. For a scored bass, a missing photo = invalid entry.
++        // For non-bass (Other bucket), publish without a photo rather than lose
++        // the entry.
++        if (scoringBass) {
++          return { status: 'invalidated', reason: 'Photo upload failed — bass not counted.' };
++        }
++        photoPath = null;
++      }
++    } catch (e) {
++      if (scoringBass) return { status: 'invalidated', reason: 'Photo error — bass not counted.' };
++      photoPath = null;
++    }
++  }
++
++  // Insert the projection row. The unique (tournament_id, client_catch_id) makes
++  // re-publishing idempotent; on a duplicate we treat it as already published.
++  const row = {
++    tournament_id: tournamentId,
++    team_id: teamId,
++    user_id: userId,
++    species: c.species,
++    length: +c.length || 0,
++    caught_at: caughtAtISO(c, session),
++    photo_url: photoPath,
++    client_catch_id: c.id,
++  };
++  const { error } = await sb.from('tournament_catches').insert(row);
++
++  if (!error) return { status: 'published' };
++
++  // Duplicate key = it's already up there. Treat as published (idempotent).
++  if (error.code === '23505' || /duplicate key/i.test(error.message || '')) {
++    return { status: 'published' };
++  }
++  // The server bass-photo trigger rejected it.
++  if (/BASS_PHOTO_REQUIRED/.test(error.message || '')) {
++    return { status: 'invalidated', reason: 'Bass entry needs a photo — not counted.' };
++  }
++  // RLS / not-a-member / other. Keep pending and retry next cycle (could be a
++  // transient membership-not-synced-yet race). We DON'T invalidate on unknown
++  // errors, so a blip never silently kills a legit entry.
++  console.warn('[tournament] publish failed, will retry', c.id, error);
++  return { status: 'pending' };
++}
++
++// Flush all publishable catches for the active tournament. Mutates each catch's
++// tournStatus/tournReason in place (matching sync.js's dirty-flag pattern) and
++// returns a summary. The caller (syncNow) persists the mutated catches.
++export async function flushTournament(data, userId) {
++  const active = data.activeTournament;
++  if (!active || !active.tournamentId) return { published: 0, pending: 0, invalidated: 0 };
++
++  const sessionById = new Map((data.sessions || []).map((s) => [s.id, s]));
++  let published = 0, pending = 0, invalidated = 0;
++
++  for (const c of data.catches || []) {
++    if (!shouldPublish(c, active)) continue;
++    const session = sessionById.get(c.sessionId) || {};
++    const verdict = await publishOne(c, active, session, userId);
++    c.tournStatus = verdict.status;
++    if (verdict.reason) c.tournReason = verdict.reason; else delete c.tournReason;
++    if (verdict.status === 'published') published++;
++    else if (verdict.status === 'invalidated') invalidated++;
++    else pending++;
++  }
++  return { published, pending, invalidated };
++}
++
++// Reconcile local status against the server's authoritative rows — catches the
++// case where the OWNER invalidated one of your entries after it published, or a
++// row was removed. Called during pull. Mutates catches in place.
++export async function reconcileTournament(data) {
++  const active = data.activeTournament;
++  if (!active || !active.tournamentId) return { reconciled: 0 };
++
++  const { data: rows, error } = await sb
++    .from('tournament_catches')
++    .select('client_catch_id, invalidated, invalidated_reason')
++    .eq('tournament_id', active.tournamentId)
++    .eq('user_id', (await sb.auth.getSession()).data.session?.user?.id || '');
++  if (error || !rows) return { reconciled: 0 };
++
++  const byLocal = new Map(rows.map((r) => [r.client_catch_id, r]));
++  let reconciled = 0;
++  for (const c of data.catches || []) {
++    const r = byLocal.get(c.id);
++    if (!r) continue;
++    if (r.invalidated && c.tournStatus !== 'invalidated') {
++      c.tournStatus = 'invalidated';
++      c.tournReason = r.invalidated_reason || 'Voided by tournament host — not counted.';
++      reconciled++;
++    } else if (!r.invalidated && c.tournStatus !== 'published') {
++      c.tournStatus = 'published';
++      delete c.tournReason;
++      reconciled++;
++    }
++  }
++  return { reconciled };
++}
+diff --git a/test/publish_test.mjs b/test/publish_test.mjs
+new file mode 100644
+index 0000000..d7dc6e7
+--- /dev/null
++++ b/test/publish_test.mjs
+@@ -0,0 +1,134 @@
++/**
++ * FishSlayR — Tournament publish-path test (step 2)
++ *
++ * Exercises the real publish lifecycle against your live Supabase project,
++ * proving:
++ *   1) bass WITH photo         -> published, scores on the leaderboard
++ *   2) bass WITHOUT photo      -> invalidated locally, never hits server
++ *   3) non-bass (Walleye)      -> published to the Other bucket (no photo needed)
++ *   4) owner invalidates a row -> reconcile flips local status to invalidated
++ *   5) re-publish is idempotent (no duplicate rows / no double count)
++ *
++ * This imports the ACTUAL src/lib/tournament.js so the tested code is the
++ * shipped code. Run from the repo root after step-1 SQL is applied.
++ *
++ * Usage (PowerShell): set the same env vars as the firewall test, then:
++ *   node test/publish_test.mjs
++ *
++ * Requires: A_EMAIL/A_PASS (publisher), B_EMAIL/B_PASS (owner+rival),
++ *           SUPABASE_URL, SUPABASE_ANON_KEY.
++ */
++import { createClient } from '@supabase/supabase-js';
++import { flushTournament, reconcileTournament, isScoringBass } from '../src/lib/tournament.js';
++
++const URL = process.env.SUPABASE_URL;
++const KEY = process.env.SUPABASE_ANON_KEY;
++const A = { email: process.env.A_EMAIL, password: process.env.A_PASS };
++const B = { email: process.env.B_EMAIL, password: process.env.B_PASS };
++if (!URL || !KEY || !A.email || !B.email) { console.error('Missing env (see header).'); process.exit(1); }
++
++// tournament.js imports the shared client from ./supabase.js, which reads these.
++// We log that same shared client in as user A (the publisher).
++const { sb } = await import('../src/lib/supabase.js');
++
++const pass = (m) => console.log('  \x1b[32mPASS\x1b[0m ' + m);
++const fail = (m) => { console.log('  \x1b[31mFAIL\x1b[0m ' + m); process.exitCode = 1; };
++
++// tiny 1x1 base64 JPEG data URL to stand in for a real photoThumb
++const TINY_JPEG = 'data:image/jpeg;base64,/9j/4AAQSkZJRgABAQEAYABgAAD/2wBDAP//////////////////////////////////////////////////////////////////////////////////////wgALCAABAAEBAREA/8QAFBABAAAAAAAAAAAAAAAAAAAAAP/aAAgBAQABPxA=';
++
++console.log('\n=== Tournament publish-path test (step 2) ===\n');
++
++// --- log in as A (publisher) on the SHARED client tournament.js uses ---
++{ const { error } = await sb.auth.signInWithPassword(A); if (error) { fail('A login: ' + error.message); process.exit(1); } }
++const aId = (await sb.auth.getUser()).data.user.id;
++
++// --- owner (B) sets up a tournament on a SEPARATE client ---
++const owner = createClient(URL, KEY, { auth: { persistSession: false } });
++{ const { error } = await owner.auth.signInWithPassword(B); if (error) { fail('B login: ' + error.message); process.exit(1); } }
++const bId = (await owner.auth.getUser()).data.user.id;
++
++const code = 'PUB-' + Math.random().toString(36).slice(2, 7).toUpperCase();
++const now = new Date();
++const { data: tourn, error: te } = await owner.from('tournaments').insert({
++  name: 'Publish Test', owner_id: bId,
++  starts_at: new Date(now.getTime() - 3600e3).toISOString(),
++  ends_at: new Date(now.getTime() + 7 * 864e5).toISOString(),
++  join_code: code,
++}).select().single();
++if (te) { fail('owner create tournament: ' + te.message); process.exit(1); }
++const T = tourn.id;
++
++// A joins + makes a team (via the shared client, as the app would)
++await sb.from('team_members').insert({ tournament_id: T, user_id: aId, angler_name: 'A' });
++const { data: teamA } = await sb.from('teams')
++  .insert({ tournament_id: T, name: 'Team A', captain_id: aId }).select().single();
++await sb.from('team_members').update({ team_id: teamA.id }).eq('tournament_id', T).eq('user_id', aId);
++pass('setup: tournament + Team A ready');
++
++// helper: build a fake local `data` object like the app's
++function makeData(catches) {
++  return {
++    activeTournament: { tournamentId: T, teamId: teamA.id },
++    sessions: [{ id: 'sess1', date: now.toISOString().slice(0, 10) }],
++    catches,
++  };
++}
++
++// sanity: the scoring set
++(isScoringBass('Largemouth Bass') && isScoringBass('Smallmouth Bass')
++  && !isScoringBass('Rock Bass') && !isScoringBass('Walleye'))
++  ? pass('scoring-bass set is exactly Small/Largemouth')
++  : fail('scoring-bass set wrong');
++
++// --- run the real flush over three catches ---
++const catches = [
++  { id: 'c-bass-photo',   sessionId: 'sess1', species: 'Largemouth Bass', length: 20.5, time: '08:00', photoThumb: TINY_JPEG },
++  { id: 'c-bass-nophoto', sessionId: 'sess1', species: 'Smallmouth Bass', length: 18.0, time: '09:00' /* no photo */ },
++  { id: 'c-walleye',      sessionId: 'sess1', species: 'Walleye',        length: 24.0, time: '10:00' /* no photo, Other */ },
++];
++const data = makeData(catches);
++const summary = await flushTournament(data, aId);
++console.log('    flush summary ->', JSON.stringify(summary));
++
++const byId = Object.fromEntries(data.catches.map((c) => [c.id, c]));
++(byId['c-bass-photo'].tournStatus === 'published')
++  ? pass('(1) bass WITH photo -> published') : fail('(1) bass+photo status: ' + byId['c-bass-photo'].tournStatus);
++(byId['c-bass-nophoto'].tournStatus === 'invalidated' && /photo/i.test(byId['c-bass-nophoto'].tournReason || ''))
++  ? pass('(2) bass WITHOUT photo -> invalidated locally') : fail('(2) bass-nophoto status: ' + byId['c-bass-nophoto'].tournStatus);
++(byId['c-walleye'].tournStatus === 'published')
++  ? pass('(3) non-bass Walleye -> published (Other bucket)') : fail('(3) walleye status: ' + byId['c-walleye'].tournStatus);
++
++// leaderboard: only the 20.5 bass should score (walleye is Other)
++const { data: lb } = await owner.rpc('tournament_leaderboard', { t: T });
++(lb && lb[0] && Number(lb[0].score) === 20.5)
++  ? pass('(1b) leaderboard scores only the bass (20.5)') : fail('(1b) leaderboard: ' + JSON.stringify(lb));
++
++// --- (5) idempotent re-publish: flush again, no new rows, still published ---
++data.catches.forEach((c) => { if (c.tournStatus === 'published') c.tournStatus = 'pending'; }); // force re-attempt
++await flushTournament(data, aId);
++const { count } = await owner.from('tournament_catches')
++  .select('*', { count: 'exact', head: true }).eq('tournament_id', T);
++(count === 2) // the published bass + the walleye; the no-photo bass never landed
++  ? pass('(5) re-publish idempotent (still 2 server rows)') : fail('(5) row count after re-publish: ' + count);
++
++// --- (4) owner invalidates the bass; reconcile flips local status ---
++await owner.from('tournament_catches')
++  .update({ invalidated: true, invalidated_reason: 'Mismeasured — host voided.' })
++  .eq('tournament_id', T).eq('client_catch_id', 'c-bass-photo');
++byId['c-bass-photo'].tournStatus = 'published'; // pretend we didn't know yet
++await reconcileTournament(data);
++(byId['c-bass-photo'].tournStatus === 'invalidated' && /void/i.test(byId['c-bass-photo'].tournReason || ''))
++  ? pass('(4) owner invalidation -> reconciled to invalidated locally')
++  : fail('(4) after reconcile: ' + byId['c-bass-photo'].tournStatus + ' / ' + byId['c-bass-photo'].tournReason);
++
++// leaderboard now excludes the voided bass -> score 0
++const { data: lb2 } = await owner.rpc('tournament_leaderboard', { t: T });
++(lb2 && lb2[0] && Number(lb2[0].score) === 0)
++  ? pass('(4b) voided bass no longer scores (0)') : fail('(4b) leaderboard after void: ' + JSON.stringify(lb2));
++
++// --- cleanup ---
++await owner.from('tournaments').delete().eq('id', T);
++console.log('\n(cleaned up test tournament)\n');
++console.log(process.exitCode ? '\x1b[31mSOME CHECKS FAILED\x1b[0m\n' : '\x1b[32mALL CHECKS PASSED\x1b[0m\n');
++process.exit(process.exitCode || 0);
+-- 
+2.43.0
+
