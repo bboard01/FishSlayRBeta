@@ -1,5 +1,6 @@
 import { sb } from './supabase.js';
 import { photoGet, photoPut } from './photos.js';
+import { flushTournament, reconcileTournament } from './tournament.js';
 
 // Cloud sync engine — ported from the single-file app's FishSync IIFE.
 // Offline-first: localStorage is the source of truth; this pushes local dirty
@@ -172,6 +173,13 @@ export async function syncNow(currentData) {
   // Upload dirty catch photos to Supabase Storage (IndexedDB -> cloud).
   await pushPhotos(auth.user.id, data.catches);
 
+  // TOURNAMENT PUBLISH — if a tournament is active, flush publishable catches
+  // (auto-publish, minus per-catch opt-outs) as minimal projections. Mutates
+  // each catch's tournStatus in place; the caller persists the merged data.
+  // Offline-first: failures stay 'pending' and retry next cycle.
+  try { await flushTournament(data, auth.user.id); }
+  catch (e) { console.warn('[sync] tournament flush error', e); }
+
   // PULL — pull the FULL tables and merge, rather than an incremental
   // `updated_at > lastPull` window. The incremental cursor caused catches to be
   // permanently missed across devices: `since` was stamped with the *pulling*
@@ -218,6 +226,11 @@ export async function syncNow(currentData) {
       }
     }
   }
+
+  // TOURNAMENT RECONCILE — pull the server's verdict on our own entries so an
+  // owner invalidation (or re-validation) after publish is reflected locally.
+  try { await reconcileTournament(data); }
+  catch (e) { console.warn('[sync] tournament reconcile error', e); }
 
   // Keep a marker so migrateIfNeeded knows this device has synced before (it's
   // no longer used as a pull cursor).

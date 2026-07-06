@@ -173,6 +173,9 @@ export default function LogCatch({ onClose, onLanded, onToast, editCatch }) {
       updated_at: new Date().toISOString(),
       _dirty: true,
     };
+    // If a tournament is active and the angler opted this catch out, mark it so
+    // the publish path skips it. (Absent/false = auto-publish, the default.)
+    if (draft.tournOptOut) obj.tournOptOut = true;
 
     // Photo handling, ported from landFish():
     // - new/changed photo: carry thumb+geo, write the display blob, flag dirty
@@ -468,6 +471,16 @@ export default function LogCatch({ onClose, onLanded, onToast, editCatch }) {
                   value={draft.notes || ''}
                   onChange={(e) => set('notes', e.target.value)}
                 />
+                {data.activeTournament && data.activeTournament.tournamentId && (
+                  <label className="tourn-toggle">
+                    <input
+                      type="checkbox"
+                      checked={!draft.tournOptOut}
+                      onChange={(e) => set('tournOptOut', !e.target.checked)}
+                    />
+                    Enter in tournament
+                  </label>
+                )}
               </div>
               <div className="save-loadout-row">
                 <button className="btn small" onClick={saveAsLoadout}>
