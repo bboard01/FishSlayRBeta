@@ -57,7 +57,7 @@ export default function Tournament({ onToast }) {
 
   if (active && active.teamId) {
     return <Leaderboard active={active} data={data} toast={toast} onLeave={clearActive}
-      setActive={setActive} busy={busy} setBusy={setBusy} runSync={runSync} />;
+      onBackToHub={clearActive} setActive={setActive} busy={busy} setBusy={setBusy} runSync={runSync} />;
   }
   if (active && !active.teamId) {
     return <TeamPicker active={active} toast={toast} setActive={setActive} clearActive={clearActive}
@@ -296,6 +296,7 @@ function TeamPicker({ active, toast, setActive, clearActive, busy, setBusy, runS
   return (
     <div className="grid">
       <div className="glass panel span12 tourn-hero">
+        <button className="btn small tourn-back-hub" onClick={clearActive}>← All tournaments</button>
         <span className="eyebrow">Tournament</span>
         <h2 className="chapter-title">Pick your team.</h2>
         <p className="story">Join a crew or start your own — one team per angler.</p>
@@ -513,7 +514,7 @@ function QuickLand({ refs, activeSession, update, runSync, toast }) {
   );
 }
 
-function Leaderboard({ active, data, toast, onLeave, setActive, busy, setBusy, runSync }) {
+function Leaderboard({ active, data, toast, onLeave, onBackToHub, setActive, busy, setBusy, runSync }) {
   // Leaderboard owns the dashboard AND the on-the-water view. The water view's
   // quick-publish needs to write a catch/session and flip the display mode, so
   // pull those straight from context here rather than threading more props.
@@ -697,6 +698,7 @@ function Leaderboard({ active, data, toast, onLeave, setActive, busy, setBusy, r
     <div className="grid">
       {/* Identity + prominent join code — home-base header */}
       <div className="glass panel span8 tourn-hero tourn-dash-id">
+        <button className="btn small tourn-back-hub" onClick={onBackToHub}>← All tournaments</button>
         <span className="eyebrow">Tournament{meta?.status === 'closed' ? ' · closed' : ''}</span>
         <h2 className="chapter-title">{meta?.name || 'Leaderboard'}</h2>
         {meta && (
