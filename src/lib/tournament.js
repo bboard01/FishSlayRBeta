@@ -63,7 +63,12 @@ export function shouldPublish(c, activeTournament) {
   if (c.tournOptOut) return false;               // user toggled it off
   if (c.tournStatus === 'published') return false;
   if (c.tournStatus === 'invalidated') return false;
-  return true; // 'pending' or freshly logged with an active tournament
+  // Only catches explicitly logged INTO this tournament publish. Without this,
+  // every historical journal catch (which carries no tournId) would sweep onto
+  // the board the moment a flush runs. The stamp is set at log time — by
+  // QuickLand in water mode and by LogCatch's "Enter in tournament" toggle.
+  if (c.tournId !== activeTournament.tournamentId) return false;
+  return true; // stamped for this tournament, not yet published, not opted out
 }
 
 // Publish ONE catch's projection. Returns a verdict the caller applies to the

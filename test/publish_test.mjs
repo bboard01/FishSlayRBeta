@@ -87,9 +87,13 @@ function makeData(catches) {
 // timezone or what hour the test runs.
 const T_NOW = Date.now();
 const catches = [
-  { id: 'c-bass-photo',   sessionId: 'sess1', species: 'Largemouth Bass', length: 20.5, photoMeta: { ts: T_NOW }, photoThumb: TINY_JPEG },
-  { id: 'c-bass-nophoto', sessionId: 'sess1', species: 'Smallmouth Bass', length: 18.0, photoMeta: { ts: T_NOW } /* no photo */ },
-  { id: 'c-walleye',      sessionId: 'sess1', species: 'Walleye',        length: 24.0, photoMeta: { ts: T_NOW } /* Other */ },
+  { id: 'c-bass-photo',   sessionId: 'sess1', species: 'Largemouth Bass', length: 20.5, photoMeta: { ts: T_NOW }, photoThumb: TINY_JPEG, tournId: T },
+  { id: 'c-bass-nophoto', sessionId: 'sess1', species: 'Smallmouth Bass', length: 18.0, photoMeta: { ts: T_NOW }, tournId: T /* no photo */ },
+  { id: 'c-walleye',      sessionId: 'sess1', species: 'Walleye',        length: 24.0, photoMeta: { ts: T_NOW }, tournId: T /* Other */ },
+  // A pre-existing journal catch with NO tournId stamp must NOT publish, even
+  // though a tournament is active. This is the water-mode "whole journal swept
+  // onto the board" regression guard.
+  { id: 'c-unstamped',    sessionId: 'sess1', species: 'Largemouth Bass', length: 19.0, photoMeta: { ts: T_NOW }, photoThumb: TINY_JPEG /* no tournId */ },
 ];
 const data = makeData(catches);
 const summary = await flushTournament(data, aId);
@@ -102,6 +106,9 @@ const byId = Object.fromEntries(data.catches.map((c) => [c.id, c]));
   ? pass('(2) bass WITHOUT photo -> invalidated locally') : fail('(2) bass-nophoto status: ' + byId['c-bass-nophoto'].tournStatus);
 (byId['c-walleye'].tournStatus === 'published')
   ? pass('(3) non-bass Walleye -> published (Other bucket)') : fail('(3) walleye status: ' + byId['c-walleye'].tournStatus);
+(byId['c-unstamped'].tournStatus === undefined)
+  ? pass('(3b) un-stamped journal catch -> skipped (not swept onto board)')
+  : fail('(3b) unstamped catch should be skipped, got: ' + byId['c-unstamped'].tournStatus);
 
 // leaderboard: only the 20.5 bass should score (walleye is Other)
 const { data: lb } = await owner.rpc('tournament_leaderboard', { t: T });

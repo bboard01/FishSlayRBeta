@@ -339,6 +339,11 @@ function QuickLand({ refs, activeSession, update, runSync, toast }) {
     update((prev) => {
       const { session, created } = ensureSession(prev);
       const catchId = uid();
+      // Stamp the tournament this catch is logged into. shouldPublish() only
+      // flushes catches whose tournId matches the active tournament — that's
+      // what keeps the water-mode board to THIS event's catches, not the whole
+      // journal. Water-mode LAND A FISH is always a tournament entry.
+      const tournId = prev.activeTournament?.tournamentId || null;
       const obj = {
         id: catchId,
         sessionId: session.id,
@@ -356,6 +361,7 @@ function QuickLand({ refs, activeSession, update, runSync, toast }) {
         rating: 4,
         photoTag: '',
         notes: '',
+        tournId,
         updated_at: new Date().toISOString(),
         _dirty: true,
       };

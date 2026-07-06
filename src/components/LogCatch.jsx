@@ -173,9 +173,23 @@ export default function LogCatch({ onClose, onLanded, onToast, editCatch }) {
       updated_at: new Date().toISOString(),
       _dirty: true,
     };
-    // If a tournament is active and the angler opted this catch out, mark it so
-    // the publish path skips it. (Absent/false = auto-publish, the default.)
-    if (draft.tournOptOut) obj.tournOptOut = true;
+    // Tournament entry stamp. The "Enter in tournament" toggle shows only while
+    // a tournament is active and defaults to ON. Stamp the catch with the active
+    // tournament's id so the publish path (shouldPublish) picks up THIS catch for
+    // THIS event — and nothing else. Opting out clears the stamp. On an edit,
+    // keep whatever the catch was already stamped/marked with so a published
+    // catch isn't silently re-queued or detached.
+    const activeTid = data.activeTournament?.tournamentId || null;
+    if (existing) {
+      const prev = data.catches.find((x) => x.id === existing) || {};
+      if (prev.tournId) obj.tournId = prev.tournId;
+      if (prev.tournOptOut) obj.tournOptOut = true;
+      if (draft.tournOptOut) { obj.tournOptOut = true; delete obj.tournId; }
+    } else if (activeTid && !draft.tournOptOut) {
+      obj.tournId = activeTid;
+    } else if (draft.tournOptOut) {
+      obj.tournOptOut = true;
+    }
 
     // Photo handling, ported from landFish():
     // - new/changed photo: carry thumb+geo, write the display blob, flag dirty
