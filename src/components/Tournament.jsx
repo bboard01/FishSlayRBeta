@@ -144,7 +144,7 @@ function Lobby({ toast, setActive, busy, setBusy, runSync }) {
   return (
     <div className="grid">
       {/* Hero — pitch + your personal, offline-computed tournament stats */}
-      <div className="glass panel span12 tourn-hero journal-hero">
+      <div className="glass panel span12 tourn-hero journal-hero tourn-hero-bg">
         <span className="eyebrow">Tournament</span>
         <h2 className="chapter-title">Top three bass take it.</h2>
         <p className="story">Total length of your team's three biggest bass. Join your crew with a code, or host your own.</p>
