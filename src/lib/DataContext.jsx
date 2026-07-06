@@ -93,7 +93,11 @@ export function DataProvider({ children }) {
   // Merge a partial update and re-render, then schedule a background push so
   // local edits reach the cloud. Accepts an object or updater fn, like setState.
   const update = useCallback((patch) => {
-    setData((prev) => (typeof patch === 'function' ? patch(prev) : { ...prev, ...patch }));
+    setData((prev) => {
+      const next = typeof patch === 'function' ? patch(prev) : { ...prev, ...patch };
+      dataRef.current = next; // keep async-sync ref fresh in the same tick
+      return next;
+    });
     scheduleSync();
   }, [scheduleSync]);
 
@@ -103,7 +107,14 @@ export function DataProvider({ children }) {
   const updateProfile = useCallback((patch) => {
     setData((prev) => {
       const merged = typeof patch === 'function' ? patch(prev) : { ...prev, ...patch };
-      return { ...merged, _profileDirty: true, _profileUpdatedAt: new Date().toISOString() };
+      const next = { ...merged, _profileDirty: true, _profileUpdatedAt: new Date().toISOString() };
+      // Update the async-sync ref SYNCHRONOUSLY here, not only in the deferred
+      // effect. Callers (e.g. Tournament pick/join) fire runSync() in the same
+      // tick as this update; without this, syncNow reads the pre-update dataRef
+      // and pushes a stale profile (e.g. teamId still null), which the next pull
+      // then writes back — bouncing the user out of the dashboard.
+      dataRef.current = next;
+      return next;
     });
     scheduleSync();
   }, [scheduleSync]);
