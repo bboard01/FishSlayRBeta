@@ -241,12 +241,35 @@ export async function listTeams(tournamentId) {
   return { teams: data || [] };
 }
 
-// CREATE a team (caller becomes captain) and join it.
+// Read the caller's current team_id in a tournament (null if teamless).
+async function myTeamId(tournamentId, uid) {
+  const { data } = await sb.from('team_members')
+    .select('team_id').eq('tournament_id', tournamentId).eq('user_id', uid).maybeSingle();
+  return data?.team_id || null;
+}
+
+// After a switch, delete the vacated team IF it has no remaining members and no
+// published catches — so switching never litters the board with orphan teams,
+// but we never orphan a teammate's entries either. Best-effort; a failure here
+// doesn't fail the switch the user asked for.
+async function cleanupEmptyTeam(oldTeamId) {
+  if (!oldTeamId) return;
+  const { data: mems } = await sb.from('team_members').select('user_id').eq('team_id', oldTeamId);
+  if (mems && mems.length) return;                 // someone else is still on it
+  const { data: catches } = await sb.from('tournament_catches')
+    .select('id').eq('team_id', oldTeamId).limit(1);
+  if (catches && catches.length) return;           // it has scored entries — keep it
+  await sb.from('teams').delete().eq('id', oldTeamId);
+}
+
+// CREATE a team (caller becomes captain) and join it. Switching off an old team
+// cleans it up if it's left empty.
 export async function createTeam(tournamentId, teamName) {
   const uid = await currentUserId();
   if (!uid) return { error: 'You need to sign in first.' };
   const name = String(teamName || '').trim();
   if (!name) return { error: 'Name your team.' };
+  const oldTeamId = await myTeamId(tournamentId, uid);
   const { data: team, error } = await sb.from('teams')
     .insert({ tournament_id: tournamentId, name, captain_id: uid }).select().single();
   if (error) {
@@ -256,16 +279,20 @@ export async function createTeam(tournamentId, teamName) {
   const { error: uErr } = await sb.from('team_members')
     .update({ team_id: team.id }).eq('tournament_id', tournamentId).eq('user_id', uid);
   if (uErr) return { error: uErr.message };
+  if (oldTeamId && oldTeamId !== team.id) await cleanupEmptyTeam(oldTeamId);
   return { team };
 }
 
-// PICK an existing team.
+// PICK an existing team. Switching off an old team cleans it up if left empty.
 export async function pickTeam(tournamentId, teamId) {
   const uid = await currentUserId();
   if (!uid) return { error: 'You need to sign in first.' };
+  const oldTeamId = await myTeamId(tournamentId, uid);
+  if (oldTeamId === teamId) return { ok: true };   // already on it — no-op
   const { error } = await sb.from('team_members')
     .update({ team_id: teamId }).eq('tournament_id', tournamentId).eq('user_id', uid);
   if (error) return { error: error.message };
+  if (oldTeamId) await cleanupEmptyTeam(oldTeamId);
   return { ok: true };
 }
 

@@ -87,6 +87,7 @@ async function pushProfile(data) {
     journal: data.journal ?? null,
     loadouts: data.loadouts ?? null,
     trip_templates: data.tripTemplates ?? null,
+    active_tournament: data.activeTournament ?? null,
     updated_at: data._profileUpdatedAt || nowISO(),
   };
   const { error } = await sb.from('profiles').upsert(row, { onConflict: 'user_id' });
@@ -223,6 +224,9 @@ export async function syncNow(currentData) {
         if (p.mode) data.mode = p.mode;
         if (p.loadouts) data.loadouts = p.loadouts;
         if (p.trip_templates) data.tripTemplates = p.tripTemplates ?? p.trip_templates;
+        // Use 'in' (not truthiness) so leaving a tournament — which sets this to
+        // null — persists across sync/reload instead of being silently ignored.
+        if ('active_tournament' in p) data.activeTournament = p.active_tournament;
       }
     }
   }
