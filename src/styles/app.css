@@ -733,6 +733,11 @@ body.water-mode[data-active-page="livewell"] .main{display:block!important;paddi
 .tourn-dash-acts{margin-top:auto}
 .tourn-dash-bar{display:flex;align-items:center;justify-content:space-between;gap:12px}
 .tourn-dash-bar .eyebrow{margin:0}
+.tourn-dash-bar .tourn-actions{margin:0}
+/* tappable join-code card (opens the share sheet) */
+.tourn-share-btn{width:100%;text-align:left;cursor:pointer;transition:.18s}
+.tourn-share-btn:hover{border-color:rgba(255,211,107,.7);background:rgba(255,211,107,.13)}
+.tourn-share-btn .btn{margin-left:auto;pointer-events:none}
 
 /* leaderboard */
 .tourn-board{display:grid;gap:10px}

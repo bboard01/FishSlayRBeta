@@ -55,7 +55,8 @@ export default function Tournament({ onToast }) {
   const clearActive = () => updateProfile((prev) => ({ ...prev, activeTournament: null }));
 
   if (active && active.teamId) {
-    return <Leaderboard active={active} data={data} toast={toast} onLeave={clearActive} runSync={runSync} />;
+    return <Leaderboard active={active} data={data} toast={toast} onLeave={clearActive}
+      setActive={setActive} busy={busy} setBusy={setBusy} runSync={runSync} />;
   }
   if (active && !active.teamId) {
     return <TeamPicker active={active} toast={toast} setActive={setActive} clearActive={clearActive}
@@ -262,7 +263,7 @@ function TeamPicker({ active, toast, setActive, clearActive, busy, setBusy, runS
 // ---------------------------------------------------------------------------
 // LEADERBOARD + HOST TOOLS — step 3b
 // ---------------------------------------------------------------------------
-function Leaderboard({ active, data, toast, onLeave, runSync }) {
+function Leaderboard({ active, data, toast, onLeave, setActive, busy, setBusy, runSync }) {
   const [meta, setMeta] = useState(null);
   const [rows, setRows] = useState([]);
   const [catches, setCatches] = useState([]);
@@ -270,9 +271,11 @@ function Leaderboard({ active, data, toast, onLeave, runSync }) {
   const [thumbs, setThumbs] = useState({});
   const [expanded, setExpanded] = useState(null);
   const [loading, setLoading] = useState(true);
-  const [busy, setBusy] = useState(false);
-  const [showTools, setShowTools] = useState(false);
   const [ownerFlag, setOwnerFlag] = useState(false);
+  // Which bottom-sheet is open: 'share' | 'team' | 'tools' | null. Same .sheet
+  // pattern as CatchSheet — self-contained here since this component owns the
+  // data and handlers the sheets need.
+  const [sheet, setSheet] = useState(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -317,6 +320,42 @@ function Leaderboard({ active, data, toast, onLeave, runSync }) {
     runSync && runSync();
   };
 
+  // Team-switch sheet: lazy-load the tournament's teams when it opens.
+  const [teams, setTeams] = useState([]);
+  const [newTeam, setNewTeam] = useState('');
+  useEffect(() => {
+    if (sheet !== 'team') return;
+    let live = true;
+    listTeams(active.tournamentId).then((r) => { if (live) setTeams(r.teams || []); });
+    return () => { live = false; };
+  }, [sheet, active.tournamentId]);
+
+  const doSwitch = async (teamId, teamName) => {
+    if (teamId === myTeamId) { setSheet(null); return; } // already on it
+    setBusy(true);
+    const r = await pickTeam(active.tournamentId, teamId);
+    setBusy(false);
+    if (r.error) { toast(r.error); return; }
+    setActive(active.tournamentId, teamId);
+    setSheet(null);
+    toast(`You're on ${teamName}`);
+    runSync && runSync();
+    load();
+  };
+  const doCreateSwitch = async () => {
+    if (!newTeam.trim()) { toast('Name your team'); return; }
+    setBusy(true);
+    const r = await createTeam(active.tournamentId, newTeam);
+    setBusy(false);
+    if (r.error) { toast(r.error); return; }
+    setActive(active.tournamentId, r.team.id);
+    setNewTeam('');
+    setSheet(null);
+    toast(`Team "${r.team.name}" created`);
+    runSync && runSync();
+    load();
+  };
+
   const hostClose = async () => {
     if (!window.confirm('Close this tournament? The board freezes; in-window catches still count.')) return;
     setBusy(true); const r = await closeTournament(active.tournamentId); setBusy(false);
@@ -359,7 +398,13 @@ function Leaderboard({ active, data, toast, onLeave, runSync }) {
             {fmtWhen(meta.starts_at)} — {fmtWhen(meta.ends_at)}
           </p>
         )}
-        <ShareCode code={meta?.join_code} toast={toast} />
+        {meta?.join_code && (
+          <button className="tourn-share tourn-share-btn" onClick={() => setSheet('share')}>
+            <span className="tourn-share-label">Join code</span>
+            <span className="tourn-share-code">{meta.join_code}</span>
+            <span className="btn gold small">Share</span>
+          </button>
+        )}
       </div>
 
       {/* Your team — rank + score glance card */}
@@ -377,8 +422,7 @@ function Leaderboard({ active, data, toast, onLeave, runSync }) {
           </div>
         </div>
         <div className="tourn-actions tourn-dash-acts">
-          {/* placeholder — modal wiring lands in the next phase */}
-          <button className="btn small" onClick={() => toast('Team switch coming soon')} disabled={busy}>Switch team</button>
+          <button className="btn small" onClick={() => setSheet('team')} disabled={busy}>Switch team</button>
           <button className="btn small danger" onClick={doLeave} disabled={busy}>Leave</button>
         </div>
       </div>
@@ -386,7 +430,12 @@ function Leaderboard({ active, data, toast, onLeave, runSync }) {
       {/* Board toolbar */}
       <div className="glass panel span12 tourn-dash-bar">
         <span className="eyebrow">Leaderboard</span>
-        <button className="btn small" onClick={load} disabled={loading || busy}>{loading ? 'Refreshing…' : '↻ Refresh'}</button>
+        <div className="tourn-actions">
+          {ownerFlag && (
+            <button className="btn small gold" onClick={() => setSheet('tools')} disabled={busy}>Host tools</button>
+          )}
+          <button className="btn small" onClick={load} disabled={loading || busy}>{loading ? 'Refreshing…' : '↻ Refresh'}</button>
+        </div>
       </div>
 
       {myInvalidCatches.length > 0 && (
@@ -467,14 +516,69 @@ function Leaderboard({ active, data, toast, onLeave, runSync }) {
         )}
       </div>
 
-      {ownerFlag && (
-        <div className="glass panel span12 tourn-tools">
-          <button className="tourn-tools-head" onClick={() => setShowTools(!showTools)}>
-            <span className="eyebrow">Host tools</span>
-            <span className="tourn-caret">{showTools ? '▾' : '▸'}</span>
-          </button>
-          {showTools && (
-            <div className="tourn-tools-body">
+      {/* SHARE-CODE SHEET */}
+      {sheet === 'share' && (
+        <div className="sheet-backdrop active" onClick={() => setSheet(null)}>
+          <div className="sheet" onClick={(e) => e.stopPropagation()}>
+            <div className="sheet-head">
+              <h2>Share the code</h2>
+              <button className="btn small" onClick={() => setSheet(null)}>Close</button>
+            </div>
+            <div className="sheet-body">
+              <ShareCode code={meta?.join_code} toast={toast} />
+              <p className="muted" style={{ marginTop: 14 }}>Anyone with this code can join and pick a team. It never changes.</p>
+            </div>
+            <div className="sheet-actions">
+              <button className="btn" onClick={() => setSheet(null)}>Done</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* TEAM-SWITCH SHEET */}
+      {sheet === 'team' && (
+        <div className="sheet-backdrop active" onClick={() => setSheet(null)}>
+          <div className="sheet" onClick={(e) => e.stopPropagation()}>
+            <div className="sheet-head">
+              <h2>Switch team</h2>
+              <button className="btn small" onClick={() => setSheet(null)}>Close</button>
+            </div>
+            <div className="sheet-body">
+              {teams.length > 0 && (
+                <div className="tourn-team-list">
+                  {teams.map((t) => (
+                    <button key={t.id} className={`tourn-team-row${t.id === myTeamId ? ' mine' : ''}`}
+                      disabled={busy} onClick={() => doSwitch(t.id, t.name)}>
+                      🎣 {t.name}{t.id === myTeamId ? ' · you' : ''}
+                    </button>
+                  ))}
+                </div>
+              )}
+              <div className="tourn-form" style={{ marginTop: teams.length ? 14 : 0 }}>
+                <label className="tourn-field">
+                  <span>Start a new team</span>
+                  <input value={newTeam} onChange={(e) => setNewTeam(e.target.value)} placeholder="Team name" />
+                </label>
+              </div>
+              <p className="muted" style={{ marginTop: 10 }}>One team per angler. Switching moves you over; an empty team you leave behind is cleaned up.</p>
+            </div>
+            <div className="sheet-actions">
+              <button className="btn" onClick={() => setSheet(null)} disabled={busy}>Cancel</button>
+              <button className="btn gold" onClick={doCreateSwitch} disabled={busy}>Create team</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* HOST-TOOLS SHEET (owner-gated) */}
+      {sheet === 'tools' && ownerFlag && (
+        <div className="sheet-backdrop active" onClick={() => setSheet(null)}>
+          <div className="sheet" onClick={(e) => e.stopPropagation()}>
+            <div className="sheet-head">
+              <h2>Host tools</h2>
+              <button className="btn small" onClick={() => setSheet(null)}>Close</button>
+            </div>
+            <div className="sheet-body">
               <div className="tourn-actions">
                 {meta?.status !== 'closed'
                   ? <button className="btn danger" onClick={hostClose} disabled={busy}>Close tournament</button>
@@ -492,8 +596,12 @@ function Leaderboard({ active, data, toast, onLeave, runSync }) {
                   </div>
                 ))}
               </div>
+              <p className="muted" style={{ marginTop: 12 }}>Void or restore individual catches from the board itself — tap a team to expand it.</p>
             </div>
-          )}
+            <div className="sheet-actions">
+              <button className="btn" onClick={() => setSheet(null)} disabled={busy}>Done</button>
+            </div>
+          </div>
         </div>
       )}
     </div>
