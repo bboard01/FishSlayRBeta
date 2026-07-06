@@ -70,19 +70,52 @@ export default function Tournament({ onToast }) {
 // LOBBY — host, join, resume
 // ---------------------------------------------------------------------------
 function Lobby({ toast, setActive, busy, setBusy, runSync }) {
+  const { data } = useData();
   const [mode, setMode] = useState(null);
   const [mine, setMine] = useState([]);
+  const [uid, setUid] = useState(null);
+  const [refreshing, setRefreshing] = useState(false);
   const dw = defaultWindow();
   const [name, setName] = useState('');
   const [startsAt, setStartsAt] = useState(dw.start);
   const [endsAt, setEndsAt] = useState(dw.end);
   const [code, setCode] = useState('');
 
+  // Refreshable tournament list — reads the server when online, but the card
+  // renders fine from the last-known list (and local stats) when it can't.
+  const loadMine = useCallback(async () => {
+    setRefreshing(true);
+    const r = await myTournaments();
+    setMine(r.tournaments || []);
+    setRefreshing(false);
+  }, []);
+
   useEffect(() => {
     let live = true;
-    myTournaments().then((r) => { if (live) setMine(r.tournaments || []); });
+    loadMine();
+    // Resolve the current user once so we can flag tournaments they host.
+    import('../lib/supabase.js').then(({ sb }) =>
+      sb.auth.getSession().then(({ data: s }) => {
+        if (live) setUid(s.session?.user?.id || null);
+      }));
     return () => { live = false; };
-  }, []);
+  }, [loadMine]);
+
+  // ---- Local, offline-safe personal stats (no network) --------------------
+  // Your tournament catches live in the journal, stamped with tournStatus once
+  // flushed. Count them and your best bass straight from local data.
+  const tournCatches = (data.catches || []).filter(
+    (c) => c.tournStatus === 'published' && !c.deleted
+  );
+  const tournBass = tournCatches.filter((c) => isBass(c.species));
+  const bestBass = tournBass.reduce((a, c) => Math.max(a, +c.length || 0), 0);
+  const hostedCount = mine.filter((t) => uid && t.owner_id === uid).length;
+  const stats = {
+    joined: mine.length,
+    hosted: hostedCount,
+    bass: tournBass.length,
+    best: bestBass,
+  };
 
   const doHost = async () => {
     if (!name.trim()) { toast('Name your tournament'); return; }
@@ -110,12 +143,20 @@ function Lobby({ toast, setActive, busy, setBusy, runSync }) {
 
   return (
     <div className="grid">
-      <div className="glass panel span12 tourn-hero">
+      {/* Hero — pitch + your personal, offline-computed tournament stats */}
+      <div className="glass panel span12 tourn-hero journal-hero">
         <span className="eyebrow">Tournament</span>
         <h2 className="chapter-title">Top three bass take it.</h2>
         <p className="story">Total length of your team's three biggest bass. Join your crew with a code, or host your own.</p>
+        <div className="chapter-stats">
+          <div className="chapter-stat"><span>Tournaments</span><strong>{stats.joined}</strong></div>
+          <div className="chapter-stat"><span>Hosted</span><strong>{stats.hosted}</strong></div>
+          <div className="chapter-stat"><span>Bass logged</span><strong>{stats.bass}</strong></div>
+          <div className="chapter-stat"><span>Best bass</span><strong>{stats.best ? `${stats.best.toFixed(2)}"` : '—'}</strong></div>
+        </div>
       </div>
 
+      {/* Join / host — flow preserved verbatim */}
       <div className="glass panel span12">
         {mode === null && (
           <div className="tourn-choice">
@@ -163,19 +204,44 @@ function Lobby({ toast, setActive, busy, setBusy, runSync }) {
         )}
       </div>
 
-      {mode === null && mine.length > 0 && (
-        <div className="glass panel span12">
-          <span className="eyebrow">Your tournaments</span>
-          <div className="tourn-mine">
-            {mine.map((t) => (
-              <button key={t.id} className="tourn-mine-row" onClick={() => setActive(t.id, t.myTeamId || null)}>
-                <span className="tourn-mine-name">🏆 {t.name}</span>
-                <span className="muted tourn-mine-when">
-                  {fmtDate(t.starts_at)}–{fmtDate(t.ends_at)}{t.status === 'closed' ? ' · closed' : ''}
-                </span>
-              </button>
-            ))}
+      {/* Your tournaments — unified list, Host tag on owned events */}
+      {mode === null && (
+        <div className="glass panel span12 tourn-mine-card">
+          <div className="tourn-dash-bar">
+            <span className="eyebrow">Your tournaments</span>
+            <button className="btn small" onClick={loadMine} disabled={refreshing}>
+              {refreshing ? 'Refreshing…' : '↻ Refresh'}
+            </button>
           </div>
+          {mine.length === 0 ? (
+            <p className="muted tourn-mine-empty">
+              {refreshing ? 'Checking…' : 'No tournaments yet. Join with a code or host your own above.'}
+            </p>
+          ) : (
+            <div className="tourn-mine">
+              {mine.map((t) => {
+                const hosted = uid && t.owner_id === uid;
+                const closed = t.status === 'closed';
+                return (
+                  <button key={t.id} className="tourn-mine-row"
+                    onClick={() => setActive(t.id, t.myTeamId || null)}>
+                    <span className="tourn-mine-main">
+                      <span className="tourn-mine-name">🏆 {t.name}</span>
+                      <span className="muted tourn-mine-when">
+                        {fmtDate(t.starts_at)}–{fmtDate(t.ends_at)}
+                      </span>
+                    </span>
+                    <span className="tourn-mine-tags">
+                      {hosted && <span className="tourn-tag host">Host</span>}
+                      <span className={`tourn-tag ${closed ? 'closed' : 'live'}`}>
+                        {closed ? 'Closed' : 'Live'}
+                      </span>
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+          )}
         </div>
       )}
     </div>
