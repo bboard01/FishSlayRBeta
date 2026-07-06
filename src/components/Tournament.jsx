@@ -1,5 +1,6 @@
-import { useState, useEffect, useCallback } from 'react';
-import { useData } from '../lib/DataContext.jsx';
+import { useState, useEffect, useCallback, useRef } from 'react';
+import { useData, uid } from '../lib/DataContext.jsx';
+import { photoPut, processCatchPhoto } from '../lib/photos.js';
 import {
   hostTournament, joinByCode, listTeams, createTeam, pickTeam,
   leaveTournament, myTournaments, getTournament,
@@ -263,7 +264,189 @@ function TeamPicker({ active, toast, setActive, clearActive, busy, setBusy, runS
 // ---------------------------------------------------------------------------
 // LEADERBOARD + HOST TOOLS — step 3b
 // ---------------------------------------------------------------------------
+// QuickLand — the water-mode "🎣 LAND A FISH" quick-publish. Minimal by design
+// (species + length + optional photo) for one-handed dock/boat use. It produces
+// a catch object matching LogCatch's landFish() shape EXACTLY, ensures a trip to
+// hang it on (reusing the active session or spinning up a lightweight tournament
+// trip), writes it to local state, and fires runSync() — the existing
+// flushTournament() in the sync path publishes it. No new publish code.
+function QuickLand({ refs, activeSession, update, runSync, toast }) {
+  const bassFirst = ['Smallmouth Bass', 'Largemouth Bass'];
+  const speciesList = refs.species && refs.species.length
+    ? [...bassFirst.filter((b) => refs.species.includes(b)),
+       ...refs.species.filter((s) => !bassFirst.includes(s))]
+    : bassFirst;
+
+  const [open, setOpen] = useState(false);
+  const [species, setSpecies] = useState(speciesList[0] || 'Smallmouth Bass');
+  const [length, setLength] = useState(16);
+  const [photo, setPhoto] = useState(null); // { patch, status } from processCatchPhoto
+  const [saving, setSaving] = useState(false);
+  const fileRef = useRef(null);
+
+  const reset = () => {
+    setSpecies(speciesList[0] || 'Smallmouth Bass');
+    setLength(16);
+    setPhoto(null);
+    if (fileRef.current) fileRef.current.value = '';
+  };
+
+  const nudge = (d) => setLength((v) => Math.round(Math.max(4, Math.min(30, (parseFloat(v) || 16) + d)) * 4) / 4);
+
+  const pickPhoto = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    try {
+      const s = activeSession() || {};
+      const res = await processCatchPhoto(file, s);
+      setPhoto(res);
+    } catch {
+      toast && toast('Photo could not be processed');
+    }
+  };
+
+  // Ensure there's a trip to hang the catch on. If none is active, create a
+  // lightweight tournament session matching NewTrip's shape closely enough to
+  // be a valid, syncable trip (season-scoped, active, dirty).
+  const ensureSession = (data) => {
+    const s = activeSession();
+    if (s && s.id) return { session: s, created: null };
+    const now = new Date();
+    const created = {
+      id: uid(),
+      season: data.activeSeason,
+      active: true,
+      title: 'Tournament',
+      name: 'Tournament',
+      date: now.toISOString().slice(0, 10),
+      start: now.toTimeString().slice(0, 5),
+      end: '',
+      state: 'PA',
+      water: '',
+      partners: [],
+      notes: 'Created on the water for tournament logging.',
+      updated_at: now.toISOString(),
+      _dirty: true,
+    };
+    return { session: created, created };
+  };
+
+  const land = () => {
+    if (saving) return;
+    setSaving(true);
+    // Read-modify-write against the freshest data via the update() updater so
+    // the same-tick runSync() sees the new catch (session-9 fresh-ref lesson).
+    update((prev) => {
+      const { session, created } = ensureSession(prev);
+      const catchId = uid();
+      const obj = {
+        id: catchId,
+        sessionId: session.id,
+        species,
+        length: +length || 0,
+        weight: 0,
+        time: new Date().toTimeString().slice(0, 5),
+        category: '',
+        lure: '',
+        color: '',
+        structure: '',
+        presentation: '',
+        depth: '',
+        disposition: 'Released',
+        rating: 4,
+        photoTag: '',
+        notes: '',
+        updated_at: new Date().toISOString(),
+        _dirty: true,
+      };
+      if (photo && photo.patch) {
+        const p = photo.patch;
+        obj.photoThumb = p.photoThumb;
+        obj.hasPhoto = true;
+        obj._photoDirty = true;
+        if (p.photoMeta) obj.photoMeta = p.photoMeta;
+        if (p.time) obj.time = p.time;
+        if (p.photoLat != null) {
+          obj.photoLat = p.photoLat;
+          obj.photoLon = p.photoLon;
+          obj.photoGeoSource = p.photoGeoSource || '';
+        }
+        if (p._photoDispBlob) photoPut(catchId, p._photoDispBlob);
+      }
+      const sessions = created
+        ? [...prev.sessions.map((x) => (x.season === prev.activeSeason ? { ...x, active: false } : x)), created]
+        : prev.sessions;
+      return { ...prev, sessions, catches: [...prev.catches, obj] };
+    });
+    // Fire the sync → flushTournament publishes the fresh catch.
+    runSync && runSync();
+    const isBassCatch = species === 'Smallmouth Bass' || species === 'Largemouth Bass';
+    toast && toast(isBassCatch && !photo
+      ? 'Landed — add a photo to score this bass'
+      : 'Fish landed 🎣');
+    setSaving(false);
+    setOpen(false);
+    reset();
+  };
+
+  if (!open) {
+    return (
+      <button className="tourn-land-orb" onClick={() => setOpen(true)}>
+        🎣 LAND A FISH
+      </button>
+    );
+  }
+
+  const scoringBassNoPhoto =
+    (species === 'Smallmouth Bass' || species === 'Largemouth Bass') && !photo;
+
+  return (
+    <div className="tourn-quickland glass panel">
+      <div className="tourn-ql-row">
+        <span className="eyebrow">Species</span>
+        <select value={species} onChange={(e) => setSpecies(e.target.value)}>
+          {speciesList.map((s) => <option key={s} value={s}>{s}</option>)}
+        </select>
+      </div>
+
+      <div className="tourn-ql-row">
+        <span className="eyebrow">Length</span>
+        <div className="tourn-ql-len">
+          <button className="btn small" onClick={() => nudge(-0.25)}>−</button>
+          <span className="tourn-ql-len-val">{(+length).toFixed(2)}"</span>
+          <button className="btn small" onClick={() => nudge(0.25)}>+</button>
+        </div>
+      </div>
+
+      <div className="tourn-ql-row">
+        <span className="eyebrow">Photo</span>
+        <button className="btn small" onClick={() => fileRef.current?.click()}>
+          {photo ? '✓ Photo attached' : '📷 Add photo'}
+        </button>
+        <input ref={fileRef} type="file" accept="image/*" capture="environment"
+          style={{ display: 'none' }} onChange={pickPhoto} />
+      </div>
+
+      {scoringBassNoPhoto && (
+        <p className="muted tourn-ql-note">Bass need a photo to count on the board.</p>
+      )}
+
+      <div className="tourn-ql-acts">
+        <button className="btn" onClick={() => { setOpen(false); reset(); }}>Cancel</button>
+        <button className="btn primary" onClick={land} disabled={saving}>
+          {saving ? 'Landing…' : '🎣 Land it'}
+        </button>
+      </div>
+    </div>
+  );
+}
+
 function Leaderboard({ active, data, toast, onLeave, setActive, busy, setBusy, runSync }) {
+  // Leaderboard owns the dashboard AND the on-the-water view. The water view's
+  // quick-publish needs to write a catch/session and flip the display mode, so
+  // pull those straight from context here rather than threading more props.
+  const { update, updateProfile, activeSession } = useData();
+  const isWater = data.mode === 'water';
   const [meta, setMeta] = useState(null);
   const [rows, setRows] = useState([]);
   const [catches, setCatches] = useState([]);
@@ -387,6 +570,57 @@ function Leaderboard({ active, data, toast, onLeave, setActive, busy, setBusy, r
   // Dashboard summary: find your team's row on the ranked board.
   const myRow = rows.find((r) => r.team_id === myTeamId) || null;
 
+  // On-the-water totals for your team, from the same catches the board uses.
+  // These render last-known even offline — we never block the view on a fetch.
+  const myBass = catchesByTeam(myTeamId)
+    .filter((c) => isBass(c.species) && !c.invalidated)
+    .sort((a, b) => (+b.length || 0) - (+a.length || 0));
+  const top3Inches = myBass.slice(0, 3).reduce((a, c) => a + (+c.length || 0), 0);
+  const totalInches = myBass.reduce((a, c) => a + (+c.length || 0), 0);
+
+  // ---- WATER MODE: full-screen on-the-water tournament view ----------------
+  if (isWater) {
+    return (
+      <div className="tourn-water" data-active-page="tournament">
+        <div className="tourn-water-top">
+          <button className="btn small tourn-water-dock"
+            onClick={() => updateProfile((p) => ({ ...p, mode: 'dock' }))}>↩ Dock</button>
+          <span className="eyebrow">{meta?.name || 'Tournament'}</span>
+        </div>
+
+        <QuickLand
+          refs={data.refs || {}}
+          activeSession={activeSession}
+          update={update}
+          runSync={runSync}
+          toast={toast}
+        />
+
+        <div className="tourn-water-standing glass panel">
+          <div className="tourn-water-rank">
+            <span className="tourn-dash-num gold">{myRow ? `#${myRow.rank}` : '—'}</span>
+            <span className="muted">{myRow?.team_name || 'Your team'}</span>
+          </div>
+          <div className="tourn-water-stats">
+            <div>
+              <span className="tourn-dash-num">{top3Inches.toFixed(2)}"</span>
+              <span className="muted">top 3 bass</span>
+            </div>
+            <div>
+              <span className="tourn-dash-num">{totalInches.toFixed(2)}"</span>
+              <span className="muted">total inches</span>
+            </div>
+            <div>
+              <span className="tourn-dash-num">{myBass.length}</span>
+              <span className="muted">bass logged</span>
+            </div>
+          </div>
+          {loading && <p className="muted tourn-water-sync">Refreshing…</p>}
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="grid">
       {/* Identity + prominent join code — home-base header */}
@@ -434,6 +668,7 @@ function Leaderboard({ active, data, toast, onLeave, setActive, busy, setBusy, r
           {ownerFlag && (
             <button className="btn small gold" onClick={() => setSheet('tools')} disabled={busy}>Host tools</button>
           )}
+          <button className="btn small" onClick={() => updateProfile((p) => ({ ...p, mode: 'water' }))}>🌊 Water mode</button>
           <button className="btn small" onClick={load} disabled={loading || busy}>{loading ? 'Refreshing…' : '↻ Refresh'}</button>
         </div>
       </div>

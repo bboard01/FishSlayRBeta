@@ -166,11 +166,21 @@ export default function App() {
     document.body.classList.toggle('water-mode', isWater);
   }, [isWater]);
 
+  // Expose the current page on the body so water-mode CSS can reveal the right
+  // full-screen page (the original water-mode rules hide every .page but the
+  // Boathouse; per-page guards keyed on this attribute opt specific pages back
+  // in — e.g. the tournament water view).
+  useEffect(() => {
+    document.body.dataset.activePage = page;
+  }, [page]);
+
   useEffect(() => {
     if (prevMode.current !== 'water' && isWater) {
-      // Entering water mode: remember where we were, force the Boathouse.
+      // Entering water mode: remember where we were. With an active tournament,
+      // the on-the-water view IS the tournament (LAND A FISH + your team's
+      // standing), so land on the tournament page; otherwise the Boathouse orb.
       lastDockPage.current = page || 'boathouse';
-      setPage('boathouse');
+      setPage(data.activeTournament ? 'tournament' : 'boathouse');
     } else if (prevMode.current === 'water' && !isWater) {
       // Leaving water mode: restore the last dock page.
       setPage(lastDockPage.current || 'boathouse');
