@@ -337,7 +337,7 @@ function TeamPicker({ active, toast, setActive, clearActive, busy, setBusy, runS
 // hang it on (reusing the active session or spinning up a lightweight tournament
 // trip), writes it to local state, and fires runSync() — the existing
 // flushTournament() in the sync path publishes it. No new publish code.
-function QuickLand({ refs, activeSession, update, runSync, toast }) {
+function QuickLand({ refs, activeSession, update, runSync, onLanded, toast }) {
   const bassFirst = ['Smallmouth Bass', 'Largemouth Bass'];
   const speciesList = refs.species && refs.species.length
     ? [...bassFirst.filter((b) => refs.species.includes(b)),
@@ -451,15 +451,23 @@ function QuickLand({ refs, activeSession, update, runSync, toast }) {
         : prev.sessions;
       return { ...prev, sessions, catches: [...prev.catches, obj] };
     });
-    // Fire the sync → flushTournament publishes the fresh catch.
-    runSync && runSync();
     const isBassCatch = species === 'Smallmouth Bass' || species === 'Largemouth Bass';
     toast && toast(isBassCatch && !photo
       ? 'Landed — add a photo to score this bass'
       : 'Fish landed 🎣');
+    // Close the entry sheet right away so it feels snappy, then in the
+    // background publish the catch and pull the board so it shows up without a
+    // manual Refresh. Sequenced: runSync() (local → server publish) must settle
+    // before onLanded() (server → board reload), or the reload reads stale data.
+    // Offline: runSync() no-ops and the board simply won't update yet — expected,
+    // no error; the next online Refresh (or Realtime, later) will reconcile.
     setSaving(false);
     setOpen(false);
     reset();
+    (async () => {
+      if (runSync) await runSync();
+      if (onLanded) await onLanded();
+    })();
   };
 
   if (!open) {
@@ -666,6 +674,7 @@ function Leaderboard({ active, data, toast, onLeave, onBackToHub, setActive, bus
           activeSession={activeSession}
           update={update}
           runSync={runSync}
+          onLanded={load}
           toast={toast}
         />
 
