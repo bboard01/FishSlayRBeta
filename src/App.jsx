@@ -372,7 +372,7 @@ export default function App() {
           />
         )}
         {page === 'legends' && <Legends onOpenCatch={(id) => setOpenCatchId(id)} />}
-        {page === 'tournament' && <Tournament onToast={showToast} />}
+        {page === 'tournament' && <Tournament onToast={showToast} onOpenCatch={openCatch} />}
         {page !== 'boathouse' && page !== 'livewell' && page !== 'tackle' && page !== 'rigbox' && page !== 'intelligence' && page !== 'campfire' && page !== 'waters' && page !== 'legends' && page !== 'tournament' && (
           <div className="glass panel">
             <span className="eyebrow">Coming soon</span>

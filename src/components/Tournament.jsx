@@ -1,6 +1,10 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useData, uid } from '../lib/DataContext.jsx';
 import { photoPut, processCatchPhoto } from '../lib/photos.js';
+import FishCard from './FishCard.jsx';
+import {
+  filterLivewellCatches, livewellFilterOptions, firstSpeciesCatch,
+} from '../lib/livewell.js';
 import {
   hostTournament, joinByCode, listTeams, createTeam, pickTeam,
   leaveTournament, myTournaments, getTournament,
@@ -45,7 +49,7 @@ function ShareCode({ code, toast }) {
   );
 }
 
-export default function Tournament({ onToast }) {
+export default function Tournament({ onToast, onOpenCatch }) {
   const { data, updateProfile, runSync } = useData();
   const active = data.activeTournament || null;
   const toast = (m) => onToast && onToast(m);
@@ -57,7 +61,8 @@ export default function Tournament({ onToast }) {
 
   if (active && active.teamId) {
     return <Leaderboard active={active} data={data} toast={toast} onLeave={clearActive}
-      onBackToHub={clearActive} setActive={setActive} busy={busy} setBusy={setBusy} runSync={runSync} />;
+      onBackToHub={clearActive} setActive={setActive} busy={busy} setBusy={setBusy} runSync={runSync}
+      onOpenCatch={onOpenCatch} />;
   }
   if (active && !active.teamId) {
     return <TeamPicker active={active} toast={toast} setActive={setActive} clearActive={clearActive}
@@ -535,7 +540,104 @@ function QuickLand({ refs, activeSession, update, runSync, onLanded, toast }) {
   );
 }
 
-function Leaderboard({ active, data, toast, onLeave, onBackToHub, setActive, busy, setBusy, runSync }) {
+// TournLivewell — YOUR catches for this tournament, as a fish-card wall (the
+// same memory-wall vocabulary as the personal Livewell). Sourced LOCALLY from
+// data.catches stamped for this tournament, so it works offline and shows a
+// fish the instant it's landed — no server round-trip. Tapping a card opens the
+// full CatchSheet via onOpenCatch, so tournament fish stay editable (notes,
+// photo, etc.) even though they're hidden from the personal journal.
+//
+// `compact` is the narrow dock column (span4) beside the board; the water view
+// passes compact={false} for the full-width panel. Reuses FishCard and the
+// livewell filter/sort helpers verbatim.
+function TournLivewell({ data, active, onOpenCatch, compact }) {
+  const [filter, setFilter] = useState('all');
+  const [sort, setSort] = useState('time');
+
+  const mine = (data.catches || []).filter(
+    (c) => c.tournId === active.tournamentId && !c.deleted,
+  );
+  const filtered = filterLivewellCatches(mine, filter, sort);
+  const filterOptions = livewellFilterOptions(mine);
+
+  // Local stat glance — same math the water standing card uses, from the same
+  // local catches. Bass ranked by length; top-3 inches is the scoring metric.
+  const bass = mine.filter((c) => isBass(c.species));
+  const ranked = bass.slice().sort((a, b) => (+b.length || 0) - (+a.length || 0));
+  const big = ranked[0] || null;
+  const top3 = ranked.slice(0, 3).reduce((s, c) => s + (+c.length || 0), 0);
+
+  return (
+    <div className={`glass panel ${compact ? 'span4' : 'span12'} tourn-livewell`}>
+      <div className="tourn-livewell-head">
+        <span className="eyebrow">🐟 My livewell</span>
+        <span className="muted tourn-livewell-sub">This tournament</span>
+      </div>
+
+      <div className="tourn-livewell-stats">
+        <div><strong>{mine.length}</strong><span className="muted">landed</span></div>
+        <div><strong>{bass.length}</strong><span className="muted">bass</span></div>
+        <div><strong>{top3.toFixed(2)}"</strong><span className="muted">top 3</span></div>
+        <div><strong>{big ? `${(+big.length).toFixed(1)}"` : '—'}</strong><span className="muted">biggest</span></div>
+      </div>
+
+      {mine.length === 0 ? (
+        <div className="livewell-empty">
+          <strong>No fish in the livewell yet.</strong>
+          <br />
+          <span>Land one and it lands here.</span>
+        </div>
+      ) : (
+        <>
+          <div className="filter-strip">
+            {filterOptions.map(([id, label]) => (
+              <button
+                key={id}
+                className={`filter-chip ${filter === id ? 'active' : ''}`}
+                onClick={() => setFilter(id)}
+              >
+                {label}
+              </button>
+            ))}
+            <select
+              className="select"
+              style={{ maxWidth: 170 }}
+              value={sort}
+              onChange={(e) => setSort(e.target.value)}
+            >
+              <option value="time">Sort by Time</option>
+              <option value="size">Sort by Size</option>
+              <option value="species">Sort by Species</option>
+              <option value="lure">Sort by Lure</option>
+            </select>
+          </div>
+
+          <div className="livewell polished">
+            {filtered.length ? (
+              filtered.map((c) => (
+                <FishCard
+                  key={c.id}
+                  c={c}
+                  isBig={big && c.id === big.id}
+                  isFirst={firstSpeciesCatch(c, mine)}
+                  onOpen={(id) => onOpenCatch && onOpenCatch(id)}
+                />
+              ))
+            ) : (
+              <div className="livewell-empty">
+                <strong>No fish match this view.</strong>
+                <br />
+                <span>Clear the filter or land another.</span>
+              </div>
+            )}
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+function Leaderboard({ active, data, toast, onLeave, onBackToHub, setActive, busy, setBusy, runSync, onOpenCatch }) {
   // Leaderboard owns the dashboard AND the on-the-water view. The water view's
   // quick-publish needs to write a catch/session and flip the display mode, so
   // pull those straight from context here rather than threading more props.
@@ -553,6 +655,9 @@ function Leaderboard({ active, data, toast, onLeave, onBackToHub, setActive, bus
   // pattern as CatchSheet — self-contained here since this component owns the
   // data and handlers the sheets need.
   const [sheet, setSheet] = useState(null);
+  // Water view: whether the on-the-water livewell wall is showing (over the
+  // standing card). Dock view shows the livewell always, beside the board.
+  const [waterLivewell, setWaterLivewell] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -680,6 +785,10 @@ function Leaderboard({ active, data, toast, onLeave, onBackToHub, setActive, bus
           <button className="btn small tourn-water-dock"
             onClick={() => updateProfile((p) => ({ ...p, mode: 'dock' }))}>↩ Dock</button>
           <span className="eyebrow">{meta?.name || 'Tournament'}</span>
+          <button className="btn small tourn-water-lwt"
+            onClick={() => setWaterLivewell((v) => !v)}>
+            {waterLivewell ? '↩ Standing' : '🐟 Livewell'}
+          </button>
         </div>
 
         <QuickLand
@@ -691,27 +800,31 @@ function Leaderboard({ active, data, toast, onLeave, onBackToHub, setActive, bus
           toast={toast}
         />
 
-        <div className="tourn-water-standing glass panel">
-          <div className="tourn-water-rank">
-            <span className="tourn-dash-num gold">{myRow ? `#${myRow.rank}` : '—'}</span>
-            <span className="muted">{myRow?.team_name || 'Your team'}</span>
+        {waterLivewell ? (
+          <TournLivewell data={data} active={active} onOpenCatch={onOpenCatch} compact={false} />
+        ) : (
+          <div className="tourn-water-standing glass panel">
+            <div className="tourn-water-rank">
+              <span className="tourn-dash-num gold">{myRow ? `#${myRow.rank}` : '—'}</span>
+              <span className="muted">{myRow?.team_name || 'Your team'}</span>
+            </div>
+            <div className="tourn-water-stats">
+              <div>
+                <span className="tourn-dash-num">{top3Inches.toFixed(2)}"</span>
+                <span className="muted">top 3 bass</span>
+              </div>
+              <div>
+                <span className="tourn-dash-num">{totalInches.toFixed(2)}"</span>
+                <span className="muted">total inches</span>
+              </div>
+              <div>
+                <span className="tourn-dash-num">{myBass.length}</span>
+                <span className="muted">bass logged</span>
+              </div>
+            </div>
+            {loading && <p className="muted tourn-water-sync">Refreshing…</p>}
           </div>
-          <div className="tourn-water-stats">
-            <div>
-              <span className="tourn-dash-num">{top3Inches.toFixed(2)}"</span>
-              <span className="muted">top 3 bass</span>
-            </div>
-            <div>
-              <span className="tourn-dash-num">{totalInches.toFixed(2)}"</span>
-              <span className="muted">total inches</span>
-            </div>
-            <div>
-              <span className="tourn-dash-num">{myBass.length}</span>
-              <span className="muted">bass logged</span>
-            </div>
-          </div>
-          {loading && <p className="muted tourn-water-sync">Refreshing…</p>}
-        </div>
+        )}
       </div>
     );
   }
@@ -778,7 +891,7 @@ function Leaderboard({ active, data, toast, onLeave, onBackToHub, setActive, bus
         </div>
       )}
 
-      <div className="glass panel span12">
+      <div className="glass panel span8">
         {loading ? (
           <p className="muted">Loading the board…</p>
         ) : rows.length === 0 ? (
@@ -846,6 +959,9 @@ function Leaderboard({ active, data, toast, onLeave, onBackToHub, setActive, bus
           </div>
         )}
       </div>
+
+      {/* MY LIVEWELL — second column beside the board (stacks below on mobile) */}
+      <TournLivewell data={data} active={active} onOpenCatch={onOpenCatch} compact />
 
       {/* SHARE-CODE SHEET */}
       {sheet === 'share' && (

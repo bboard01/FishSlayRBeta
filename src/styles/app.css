@@ -837,9 +837,29 @@ body.water-mode[data-active-page="tournament"] .main{display:block!important;pad
 .tourn-water-stats .muted{font-size:.72rem;text-transform:uppercase;letter-spacing:.06em}
 .tourn-water-sync{margin:0;text-align:center;font-size:.8rem}
 
+/* MY LIVEWELL — the personal tournament catch wall. Dock: span4 column beside
+   the board. Water: full-width panel toggled over the standing card. Reuses the
+   .livewell / .fish-card / .filter-strip vocabulary; these rules only style the
+   wrapper head + local stat strip. */
+.tourn-livewell{display:flex;flex-direction:column;gap:14px}
+.tourn-livewell-head{display:flex;align-items:baseline;justify-content:space-between;gap:10px}
+.tourn-livewell-head .eyebrow{margin:0}
+.tourn-livewell-sub{font-size:.74rem;text-transform:uppercase;letter-spacing:.08em}
+.tourn-livewell-stats{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;text-align:center}
+.tourn-livewell-stats>div{display:flex;flex-direction:column;gap:2px;border:1px solid rgba(255,255,255,.1);background:rgba(255,255,255,.045);border-radius:14px;padding:10px 6px}
+.tourn-livewell-stats strong{font-size:1.3rem;letter-spacing:-.05em;font-variant-numeric:tabular-nums}
+.tourn-livewell-stats .muted{font-size:.66rem;text-transform:uppercase;letter-spacing:.05em}
+/* In the narrow dock column the cards should fill the width two-up. */
+.tourn-livewell .livewell{min-height:0}
+.tourn-livewell .fish-card{min-width:calc(50% - 6px);flex:1 1 calc(50% - 6px)}
+/* Water: livewell toggle button, and let a tall wall scroll within the view. */
+.tourn-water-lwt{flex:0 0 auto}
+.tourn-water .tourn-livewell{width:100%;max-height:calc(100svh - 220px);overflow:auto}
+
 @media(max-width:760px){
   .tourn-choice{grid-template-columns:1fr}
   .tourn-field-row{grid-template-columns:1fr}
   .tourn-team-head{grid-template-columns:38px 1fr auto 20px;gap:9px}
   .tourn-catch-by{display:none}
+  .tourn-livewell-stats{grid-template-columns:repeat(2,1fr)}
 }
