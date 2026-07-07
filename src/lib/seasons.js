@@ -51,9 +51,12 @@ export function chapterIcon(s) {
 // Per-season rollup — mirrors chapterStats(id) in the original. Non-deleted
 // catches only, so tombstoned records don't inflate counts.
 export function chapterStats(data, id) {
-  const sessions = data.sessions.filter((s) => s.season === id);
+  // Personal rollup: exclude hidden tournament trips (tournTrip) and
+  // tournament-only catches (tournId) so tournament activity never inflates
+  // personal season counts, "biggest," species, top lure, etc.
+  const sessions = data.sessions.filter((s) => s.season === id && !s.tournTrip);
   const ids = new Set(sessions.map((s) => s.id));
-  const catches = data.catches.filter((c) => ids.has(c.sessionId) && !c.deleted);
+  const catches = data.catches.filter((c) => ids.has(c.sessionId) && !c.deleted && !c.tournId);
   const biggest = catches.slice().sort((a, b) => (+b.length || 0) - (+a.length || 0))[0];
   const hours = sessions.reduce((sum, s) => sum + sessionHours(s), 0);
   return {
@@ -93,7 +96,8 @@ export function seasonMoodName() {
 // ---- Journal / Campfire helpers (ported 1:1 from the single-file app) ----
 
 export function chapterSessions(data, id) {
-  return data.sessions.filter((s) => s.season === id);
+  // Hidden tournament trips (tournTrip) never appear in the personal journal.
+  return data.sessions.filter((s) => s.season === id && !s.tournTrip);
 }
 
 // Subtitle for a season "book" cover (chapterSubtitle).

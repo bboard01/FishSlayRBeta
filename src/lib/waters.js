@@ -152,7 +152,7 @@ export { sampleLabel };
 
 // Non-deleted catches for a trip + its hours, for chapter cards.
 export function tripChapterInfo(data, trip) {
-  const c = data.catches.filter((x) => x.sessionId === trip.id && !x.deleted);
+  const c = data.catches.filter((x) => x.sessionId === trip.id && !x.deleted && !x.tournId);
   const b = biggest(c) || {};
   return { count: c.length, best: b.length || 0, hours: sessionHours(trip) };
 }

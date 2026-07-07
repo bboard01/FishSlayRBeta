@@ -99,7 +99,8 @@ function uniqueSessionsFromCatches(data, c) {
 // Enrich every (non-deleted) catch with its session context, mirroring
 // allCatchesEnriched().
 export function allCatchesEnriched(data) {
-  return data.catches.filter((c) => !c.deleted).map((c) => {
+  // Tournament-only catches (tournId) are excluded from personal intelligence.
+  return data.catches.filter((c) => !c.deleted && !c.tournId).map((c) => {
     const s = sessionFor(data, c.sessionId);
     return {
       ...c, _session: s, _water: s.water, _weather: s.weather, _clarity: s.clarity, _flow: s.flow,

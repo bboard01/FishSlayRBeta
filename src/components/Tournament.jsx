@@ -372,17 +372,28 @@ function QuickLand({ refs, activeSession, update, runSync, onLanded, toast }) {
     }
   };
 
-  // Ensure there's a trip to hang the catch on. If none is active, create a
-  // lightweight tournament session matching NewTrip's shape closely enough to
-  // be a valid, syncable trip (season-scoped, active, dirty).
+  // Ensure there's a trip to hang the tournament catch on. A tournament land is
+  // NEVER attached to a personal trip — it gets a dedicated per-tournament
+  // session flagged `tournTrip` so personal views/stats/trips exclude it (the
+  // publish path still resolves it by sessionId for the caught-at timestamp).
+  // Reuse the existing tournTrip session for THIS tournament if one already
+  // exists (so repeat lands don't spawn duplicate hidden trips); else create it.
+  // Operates on `prev` from the update() updater so it sees the freshest data.
   const ensureSession = (data) => {
-    const s = activeSession();
-    if (s && s.id) return { session: s, created: null };
+    const tournId = data.activeTournament?.tournamentId || null;
+    if (tournId) {
+      const existing = (data.sessions || []).find(
+        (s) => s.tournTrip && s.tournId === tournId && s.season === data.activeSeason,
+      );
+      if (existing && existing.id) return { session: existing, created: null };
+    }
     const now = new Date();
     const created = {
       id: uid(),
       season: data.activeSeason,
-      active: true,
+      active: false,           // hidden trip: never the personal "active" trip
+      tournTrip: true,         // excluded from personal trips/seasons/stats
+      tournId,                 // ties the hidden trip to its tournament
       title: 'Tournament',
       name: 'Tournament',
       date: now.toISOString().slice(0, 10),
@@ -446,9 +457,11 @@ function QuickLand({ refs, activeSession, update, runSync, onLanded, toast }) {
         }
         if (p._photoDispBlob) photoPut(catchId, p._photoDispBlob);
       }
-      const sessions = created
-        ? [...prev.sessions.map((x) => (x.season === prev.activeSeason ? { ...x, active: false } : x)), created]
-        : prev.sessions;
+      // The tournament trip is created inactive and hidden, so we do NOT touch
+      // the personal active trip here (previously this flipped the season's
+      // active trip off, which was only correct when the tournament trip became
+      // the new active one — it no longer does).
+      const sessions = created ? [...prev.sessions, created] : prev.sessions;
       return { ...prev, sessions, catches: [...prev.catches, obj] };
     });
     const isBassCatch = species === 'Smallmouth Bass' || species === 'Largemouth Bass';

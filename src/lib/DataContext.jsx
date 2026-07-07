@@ -142,14 +142,21 @@ export function DataProvider({ children }) {
 
   // ---- selectors (ported 1:1 from the single-file app) ----
   const selectors = useMemo(() => {
-    const seasonSessions = () => data.sessions.filter((s) => s.season === data.activeSeason);
+    // A catch stamped for a tournament (tournId set) is a tournament-only entry:
+    // it publishes to that tournament's board but must NOT appear in personal
+    // views, trips, or stats. Likewise a session auto-created on the water for a
+    // tournament land (tournTrip) is not a real personal trip. These two guards
+    // are the single source of truth for "belongs to the personal journal."
+    const isPersonalCatch = (c) => !c.deleted && !c.tournId;
+    const isPersonalSession = (s) => !s.tournTrip;
+    const seasonSessions = () => data.sessions.filter((s) => s.season === data.activeSeason && isPersonalSession(s));
     const currentSeason = () => data.seasons.find((s) => s.id === data.activeSeason) || data.seasons[0];
     const activeSession = () =>
-      data.sessions.find((s) => s.active && s.season === data.activeSeason) || seasonSessions()[0];
-    const catchesForSession = (id) => data.catches.filter((c) => c.sessionId === id && !c.deleted);
+      data.sessions.find((s) => s.active && s.season === data.activeSeason && isPersonalSession(s)) || seasonSessions()[0];
+    const catchesForSession = (id) => data.catches.filter((c) => c.sessionId === id && isPersonalCatch(c));
     const seasonCatches = () => {
       const ids = new Set(seasonSessions().map((s) => s.id));
-      return data.catches.filter((c) => ids.has(c.sessionId) && !c.deleted);
+      return data.catches.filter((c) => ids.has(c.sessionId) && isPersonalCatch(c));
     };
     const sessionFor = (id) => data.sessions.find((s) => s.id === id) || {};
     const biggest = (c = seasonCatches()) =>

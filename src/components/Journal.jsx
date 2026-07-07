@@ -182,7 +182,7 @@ export default function Journal({ onStartSeason, onManageChapters, onOpenLivewel
       {/* Trip story covers */}
       {sessions.length ? (
         sessions.map((s) => {
-          const c = data.catches.filter((x) => x.sessionId === s.id && !x.deleted);
+          const c = data.catches.filter((x) => x.sessionId === s.id && !x.deleted && !x.tournId);
           const b = c.slice().sort((a, z) => (+z.length || 0) - (+a.length || 0))[0] || {};
           const species = new Set(c.map((x) => x.species || 'Unknown')).size;
           return (
