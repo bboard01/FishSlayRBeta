@@ -566,12 +566,18 @@ function TournLivewell({ data, active, onOpenCatch, compact }) {
   const ranked = bass.slice().sort((a, b) => (+b.length || 0) - (+a.length || 0));
   const big = ranked[0] || null;
   const top3 = ranked.slice(0, 3).reduce((s, c) => s + (+c.length || 0), 0);
+  // Catches the server (or host) rejected — bass without a photo, out of window,
+  // upload failed, or voided. tournStatus/tournReason are stamped locally by
+  // flushTournament, so this works offline off the last known verdict.
+  const needFix = mine.filter((c) => c.tournStatus === 'invalidated');
 
   return (
     <div className={`glass panel ${compact ? 'span4' : 'span12'} tourn-livewell`}>
       <div className="tourn-livewell-head">
         <span className="eyebrow">🐟 My livewell</span>
-        <span className="muted tourn-livewell-sub">This tournament</span>
+        {needFix.length > 0
+          ? <span className="tourn-livewell-fix">⚠ {needFix.length} to fix</span>
+          : <span className="muted tourn-livewell-sub">This tournament</span>}
       </div>
 
       <div className="tourn-livewell-stats">
@@ -614,15 +620,35 @@ function TournLivewell({ data, active, onOpenCatch, compact }) {
 
           <div className="livewell polished">
             {filtered.length ? (
-              filtered.map((c) => (
-                <FishCard
-                  key={c.id}
-                  c={c}
-                  isBig={big && c.id === big.id}
-                  isFirst={firstSpeciesCatch(c, mine)}
-                  onOpen={(id) => onOpenCatch && onOpenCatch(id)}
-                />
-              ))
+              filtered.map((c) => {
+                // Per-card tournament status overlay. 'invalidated' → tap to fix
+                // (usually add a photo); 'pending' → not yet on the board (offline
+                // or no team). 'published' with no reason needs no badge.
+                const bad = c.tournStatus === 'invalidated';
+                const pending = c.tournStatus === 'pending';
+                return (
+                  <div key={c.id} className={`tourn-lw-card${bad ? ' bad' : ''}`}>
+                    <FishCard
+                      c={c}
+                      isBig={big && c.id === big.id}
+                      isFirst={firstSpeciesCatch(c, mine)}
+                      onOpen={(id) => onOpenCatch && onOpenCatch(id)}
+                    />
+                    {bad && (
+                      <button
+                        className="tourn-lw-status bad"
+                        onClick={() => onOpenCatch && onOpenCatch(c.id)}
+                        title={c.tournReason || 'Not counted — tap to fix'}
+                      >
+                        ⚠ {c.tournReason || "Not counted — tap to fix"}
+                      </button>
+                    )}
+                    {pending && (
+                      <span className="tourn-lw-status pending">⏳ Not on the board yet</span>
+                    )}
+                  </div>
+                );
+              })
             ) : (
               <div className="livewell-empty">
                 <strong>No fish match this view.</strong>
@@ -832,7 +858,7 @@ function Leaderboard({ active, data, toast, onLeave, onBackToHub, setActive, bus
   return (
     <div className="grid">
       {/* Identity + prominent join code — home-base header */}
-      <div className="glass panel span8 tourn-hero tourn-dash-id">
+      <div className="glass panel span8 tourn-hero tourn-dash-id tourn-hero-bg">
         <button className="btn small tourn-back-hub" onClick={onBackToHub}>← All tournaments</button>
         <span className="eyebrow">Tournament{meta?.status === 'closed' ? ' · closed' : ''}</span>
         <h2 className="chapter-title">{meta?.name || 'Leaderboard'}</h2>

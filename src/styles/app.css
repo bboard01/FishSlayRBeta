@@ -849,9 +849,21 @@ body.water-mode[data-active-page="tournament"] .main{display:block!important;pad
 .tourn-livewell-stats>div{display:flex;flex-direction:column;gap:2px;border:1px solid rgba(255,255,255,.1);background:rgba(255,255,255,.045);border-radius:14px;padding:10px 6px}
 .tourn-livewell-stats strong{font-size:1.3rem;letter-spacing:-.05em;font-variant-numeric:tabular-nums}
 .tourn-livewell-stats .muted{font-size:.66rem;text-transform:uppercase;letter-spacing:.05em}
-/* In the narrow dock column the cards should fill the width two-up. */
+/* In the narrow dock column the cards should fill the width two-up. The status
+   wrapper is now the flex child, so it carries the sizing; the card fills it. */
 .tourn-livewell .livewell{min-height:0}
-.tourn-livewell .fish-card{min-width:calc(50% - 6px);flex:1 1 calc(50% - 6px)}
+.tourn-lw-card{position:relative;display:flex;flex-direction:column;min-width:122px}
+.tourn-livewell .tourn-lw-card{min-width:calc(50% - 6px);flex:1 1 calc(50% - 6px)}
+.tourn-lw-card>.fish-card{width:100%;flex:1 1 auto}
+/* Rejected catch (bass w/o photo, out of window, upload failed, voided): red
+   frame + a tappable reason strip that opens the catch so it can be fixed. */
+.tourn-lw-card.bad>.fish-card{border-color:rgba(255,97,120,.6)!important;box-shadow:0 0 0 1px rgba(255,97,120,.35),0 16px 42px rgba(0,0,0,.22)}
+.tourn-lw-status{margin-top:7px;border-radius:14px;padding:8px 10px;font-weight:950;font-size:.72rem;line-height:1.25;text-align:left;border:1px solid transparent;letter-spacing:.01em}
+.tourn-lw-status.bad{width:100%;background:rgba(255,97,120,.14);border-color:rgba(255,97,120,.4);color:#ffd6dc;cursor:pointer}
+.tourn-lw-status.bad:hover{background:rgba(255,97,120,.22);border-color:rgba(255,97,120,.6)}
+.tourn-lw-status.pending{display:inline-block;background:rgba(255,211,107,.12);border-color:rgba(255,211,107,.34);color:#ffe4a3}
+/* "N to fix" pill in the livewell head. */
+.tourn-livewell-fix{border:1px solid rgba(255,97,120,.42);background:rgba(255,97,120,.14);color:#ffd6dc;border-radius:999px;padding:5px 11px;font-weight:1000;font-size:.72rem;letter-spacing:.03em;white-space:nowrap}
 /* Water: livewell toggle button, and let a tall wall scroll within the view. */
 .tourn-water-lwt{flex:0 0 auto}
 .tourn-water .tourn-livewell{width:100%;max-height:calc(100svh - 220px);overflow:auto}
