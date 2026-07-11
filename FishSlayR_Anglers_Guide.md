@@ -118,5 +118,3 @@ A **⏳ "not on the board yet"** note just means you're offline or haven't picke
 - **← All tournaments vs. red Leave:** the back arrow keeps you in the tournament (just leaves the view). The red **Leave** button actually drops you out — don't hit it by accident.
 
 ---
-
-*Something broken or confusing? Tell Brad — it's still in testing.*
